@@ -163,6 +163,7 @@ function parseActivities(input: unknown): ActivityItem[] {
     calories: numeric(item.calories),
     distanceKm: numeric(item.distance),
     averageHeartRate: numeric(item.averageHeartRate),
+    strain: numeric(item.strain),
     zoneMinutes: firstNumber(item.activeZoneMinutes?.totalMinutes, item.activeZoneMinutes),
     steps: numeric(item.steps),
     averagePaceSecondsPerMeter: numeric(item.averagePaceSecondsPerMeter),

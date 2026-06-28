@@ -30,7 +30,7 @@ import {
   useSidebar,
 } from '@/components/ui/sidebar'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import type { DashboardData, FitbitAuthStatus, FitbitConfigInput, HealthProvider, PageId } from '@/types'
+import type { AnalysisMode, DashboardData, FitbitAuthStatus, FitbitConfigInput, HealthProvider, PageId } from '@/types'
 import { createDemoData, localIso } from '@/data/demo'
 import { normalizeFitbitData } from '@/data/normalize'
 import { formatDate, relativeTime } from '@/lib/format'
@@ -128,6 +128,7 @@ export default function App() {
   const [status, setStatus] = useState(defaultStatus)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [assistantOpen, setAssistantOpen] = useState(false)
+  const [analysisMode, setAnalysisMode] = useState<AnalysisMode>('daily')
   const [syncing, setSyncing] = useState(false)
   const [syncTargetDate, setSyncTargetDate] = useState<string | null>(null)
   const [connecting, setConnecting] = useState(false)
@@ -340,14 +341,14 @@ export default function App() {
   }
 
   const currentView = useMemo(() => {
-    const props = { data, status, navigate: setPage }
+    const props = { data, status, navigate: setPage, analysisMode, setAnalysisMode }
     if (page === 'activity') return <ActivityView {...props} />
     if (page === 'health') return <HealthView {...props} />
     if (page === 'sleep') return <SleepView {...props} />
     if (page === 'body') return <BodyView {...props} />
     if (page === 'devices') return <DevicesView {...props} />
     return <TodayView {...props} />
-  }, [data, page, status])
+  }, [analysisMode, data, page, status])
 
   const isToday = selectedDate === localIso()
   const sourceLabel = status.connected

@@ -273,7 +273,7 @@ describe('normalizeFitbitData', () => {
           }],
         },
         sleepTrend: { sleep: [{ dateOfSleep: '2026-06-22', isMainSleep: true, minutesAsleep: 421, efficiency: 92 }] },
-        activities: { activities: [{ logId: 'workout-1', activityName: 'running', startTime: '2026-06-22T18:00:00Z', duration: 2_400_000, calories: 375, averageHeartRate: 141 }] },
+        activities: { activities: [{ logId: 'workout-1', activityName: 'running', startTime: '2026-06-22T18:00:00Z', duration: 2_400_000, calories: 375, averageHeartRate: 141, strain: 11.6 }] },
         metricTrends: {
           values: [
             { dateTime: '2026-06-21', hrvMs: 39, spo2: 96.1, recoveryScore: 64, strain: 9.2, sleepPerformance: 81 },
@@ -305,6 +305,6 @@ describe('normalizeFitbitData', () => {
       ['wake', 34],
     ])
     expect(result.trends.at(-1)).toMatchObject({ recoveryScore: 72, strain: 12.4, sleepPerformance: 88, hrvMs: 42.5, spo2: 96.8 })
-    expect(result.activities[0]).toMatchObject({ id: 'workout-1', name: 'running', calories: 375, averageHeartRate: 141 })
+    expect(result.activities[0]).toMatchObject({ id: 'workout-1', name: 'running', calories: 375, averageHeartRate: 141, strain: 11.6 })
   })
 })

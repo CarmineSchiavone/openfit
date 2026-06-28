@@ -2,6 +2,7 @@ import type { KeyboardEvent, ReactNode } from 'react'
 import { Card, CardAction, CardHeader } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
 import { formatNumber } from '@/lib/format'
+import type { AnalysisMode } from '@/types'
 import type { AppIcon } from './icons'
 import { ChevronDownIcon, ChevronUpIcon, MinusIcon } from './icons'
 import { BulletChart } from './Charts'
@@ -132,4 +133,29 @@ export function Delta({ value, suffix = ' vs. previous period' }: { value: numbe
 
 export function EmptyValue({ children = 'Not available for this device or day.' }: { children?: ReactNode }) {
   return <div className="empty-value">{children}</div>
+}
+
+export function AnalysisModeToggle({
+  value,
+  onChange,
+}: {
+  value: AnalysisMode
+  onChange: (mode: AnalysisMode) => void
+}) {
+  return (
+    <div className="analysis-toggle" role="tablist" aria-label="Analysis mode">
+      {(['daily', 'weekly'] as const).map((mode) => (
+        <button
+          key={mode}
+          type="button"
+          role="tab"
+          aria-selected={value === mode}
+          className={cn('analysis-toggle-button', value === mode && 'is-active')}
+          onClick={() => onChange(mode)}
+        >
+          {mode === 'daily' ? 'Daily' : 'Weekly'}
+        </button>
+      ))}
+    </div>
+  )
 }

@@ -1,4 +1,5 @@
 export type PageId = 'today' | 'activity' | 'health' | 'sleep' | 'body' | 'devices'
+export type AnalysisMode = 'daily' | 'weekly'
 
 export type DataSource = 'demo' | 'fitbit' | 'google-health' | 'whoop' | 'cache'
 
@@ -47,10 +48,56 @@ export interface ActivityItem {
   calories: number | null
   distanceKm: number | null
   averageHeartRate: number | null
+  strain: number | null
   zoneMinutes: number | null
   steps: number | null
   averagePaceSecondsPerMeter: number | null
   heartZoneMinutes: HeartZoneMinutes | null
+}
+
+export interface WeeklyPoint {
+  date: string
+  label: string
+  value: number
+  withinSd: boolean
+}
+
+export interface WeeklyAggregate {
+  key: string
+  weekStart: string
+  weekEnd: string
+  label: string
+  shortLabel: string
+  isPartial: boolean
+  sampleCount: number
+  mean: number
+  sd: number
+  min: number
+  max: number
+  points: WeeklyPoint[]
+}
+
+export interface SportGroupSummary {
+  sport: string
+  activityCount: number
+  weeksActive: number
+  averageSessionsPerWeek: number
+  averageDurationMinutes: number | null
+  averageHeartRate: number | null
+  averageCalories: number | null
+  averageStrain: number | null
+}
+
+export interface SportZonePercentage {
+  label: 'Light' | 'Moderate' | 'Vigorous' | 'Peak'
+  percentage: number
+}
+
+export interface SportDetailSummary extends SportGroupSummary {
+  sessions: ActivityItem[]
+  weeklyDuration: WeeklyAggregate[]
+  weeklyHeartRate: WeeklyAggregate[]
+  zonePercentages: SportZonePercentage[]
 }
 
 export type SleepStageKey = 'deep' | 'light' | 'rem' | 'wake'

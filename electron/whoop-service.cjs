@@ -142,6 +142,8 @@ async function collection(path, accessToken, parameters = {}) {
   return { records }
 }
 
+const WHOOP_EARLIEST_SYNC_DATE = '2000-01-01'
+
 function shiftIso(value, days) {
   const [year, month, day] = value.split('-').map(Number)
   return new Date(Date.UTC(year, month - 1, day + days, 12)).toISOString().slice(0, 10)
@@ -149,7 +151,7 @@ function shiftIso(value, days) {
 
 function intervalForDate(date) {
   return {
-    start: `${shiftIso(date, -29)}T00:00:00.000Z`,
+    start: `${WHOOP_EARLIEST_SYNC_DATE}T00:00:00.000Z`,
     end: `${shiftIso(date, 1)}T00:00:00.000Z`,
   }
 }

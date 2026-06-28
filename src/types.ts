@@ -1,5 +1,5 @@
 export type PageId = 'today' | 'activity' | 'health' | 'sleep' | 'body' | 'devices'
-export type AnalysisMode = 'daily' | 'weekly'
+export type AnalysisMode = 'daily' | 'weekly' | 'monthly'
 
 export type DataSource = 'demo' | 'fitbit' | 'google-health' | 'whoop' | 'cache'
 
@@ -93,10 +93,18 @@ export interface SportZonePercentage {
   percentage: number
 }
 
+export interface DistributionBin {
+  label: string
+  percentage: number
+  count: number
+}
+
 export interface SportDetailSummary extends SportGroupSummary {
   sessions: ActivityItem[]
   weeklyDuration: WeeklyAggregate[]
   weeklyHeartRate: WeeklyAggregate[]
+  durationDistribution: DistributionBin[]
+  heartRateDistribution: DistributionBin[]
   zonePercentages: SportZonePercentage[]
 }
 

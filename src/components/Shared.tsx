@@ -144,7 +144,7 @@ export function AnalysisModeToggle({
 }) {
   return (
     <div className="analysis-toggle" role="tablist" aria-label="Analysis mode">
-      {(['daily', 'weekly'] as const).map((mode) => (
+      {(['daily', 'weekly', 'monthly'] as const).map((mode) => (
         <button
           key={mode}
           type="button"
@@ -153,7 +153,7 @@ export function AnalysisModeToggle({
           className={cn('analysis-toggle-button', value === mode && 'is-active')}
           onClick={() => onChange(mode)}
         >
-          {mode === 'daily' ? 'Daily' : 'Weekly'}
+          {mode === 'daily' ? 'Daily' : mode === 'weekly' ? 'Weekly' : 'Monthly'}
         </button>
       ))}
     </div>

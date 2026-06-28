@@ -11,6 +11,7 @@ import {
   BatteryIcon,
   BodyIcon,
   BreathingIcon,
+  CalendarIcon,
   CaloriesIcon,
   CheckIcon,
   ChevronRightIcon,
@@ -43,8 +44,8 @@ import {
 import { availableMetricCount, hasActivityData, hasBodyData, hasHealthData, hasSleepData } from '@/lib/data-availability'
 import { analyzeHome } from '@/lib/home-analysis'
 import type { BaselineComparison } from '@/lib/home-analysis'
-import { buildRecoveryModel } from '@/lib/relationship-analysis'
-import { sportDetails, weeklyAggregates, type TrendMetricKey } from '@/lib/weekly-analysis'
+import { buildOutcomeModels } from '@/lib/relationship-analysis'
+import { monthlyAggregates, sportDetails, weeklyAggregates, type AggregatePeriod, type TrendMetricKey } from '@/lib/weekly-analysis'
 
 interface ViewProps {
   data: DashboardData
@@ -227,6 +228,28 @@ function sleepScoreCategory(value: number) {
 
 type HomeCategory = 'activity' | 'heart' | 'sleep' | 'recovery' | 'body'
 
+function isStatMode(mode: AnalysisMode): mode is Exclude<AnalysisMode, 'daily'> {
+  return mode !== 'daily'
+}
+
+function statPeriod(mode: AnalysisMode): AggregatePeriod {
+  return mode === 'monthly' ? 'monthly' : 'weekly'
+}
+
+function periodNoun(mode: AnalysisMode) {
+  return mode === 'monthly' ? 'months' : 'weeks'
+}
+
+function periodAdjective(mode: AnalysisMode) {
+  return mode === 'monthly' ? 'Monthly' : 'Weekly'
+}
+
+function periodDescription(mode: AnalysisMode) {
+  return mode === 'monthly'
+    ? 'Calendar-month means with standard deviation and daily outlier highlighting.'
+    : 'Monday-Sunday weekly means with standard deviation and daily outlier highlighting.'
+}
+
 const trendColors: Record<HomeCategory, string> = {
   activity: 'var(--category-activity)',
   heart: 'var(--category-heart)',
@@ -307,13 +330,25 @@ function ActivitySelector({
   )
 }
 
-function MetricSelect(_props: {
+function MetricSelect({
+  label,
+  value,
+  options,
+  onChange,
+}: {
   label: string
   value: string
   options: Array<{ key: string; label: string }>
   onChange: (value: string) => void
 }) {
-  return null
+  return (
+    <label className="metric-select">
+      <span>{label}</span>
+      <select value={value} onChange={(event) => onChange(event.target.value)}>
+        {options.map((option) => <option key={option.key} value={option.key}>{option.label}</option>)}
+      </select>
+    </label>
+  )
 }
 
 function CorrelationMatrix(_props: { data: DashboardData }) {
@@ -322,6 +357,7 @@ function CorrelationMatrix(_props: { data: DashboardData }) {
 
 function WeeklyMetricTrendPanel({
   data,
+  mode,
   category,
   icon,
   title,
@@ -329,18 +365,19 @@ function WeeklyMetricTrendPanel({
   formatter,
 }: {
   data: DashboardData
+  mode: Extract<AnalysisMode, 'weekly' | 'monthly'>
   category: HomeCategory
   icon: AppIcon
   title: string
   metric: TrendMetricKey
   formatter: (value: number) => string
 }) {
-  const weeks = weeklyAggregates(data.trends, metric)
+  const weeks = mode === 'monthly' ? monthlyAggregates(data.trends, metric) : weeklyAggregates(data.trends, metric)
   if (!weeks.length) return null
   return (
     <Panel className="metric-trend-card weekly-metric-card" category={category}>
       <PanelHeader
-        eyebrow={`${weeks.length} weeks with data`}
+        eyebrow={`${weeks.length} ${periodNoun(mode)} with data`}
         title={title}
         icon={icon}
         action={<Badge variant="secondary">{formatter(weeks.at(-1)?.mean ?? 0)}</Badge>}
@@ -350,7 +387,7 @@ function WeeklyMetricTrendPanel({
         color={trendColors[category]}
         formatter={formatter}
         height={176}
-        ariaLabel={`${title} weekly statistical trend`}
+        ariaLabel={`${title} ${mode} statistical trend`}
       />
     </Panel>
   )
@@ -419,41 +456,6 @@ function TrendStats({
       <div><span>Today</span><strong>{current}</strong></div>
       <div><span>{sampleCount ? `${sampleCount}-day average` : 'Recent average'}</span><strong>{average}</strong></div>
       <div><span>vs average</span><strong>{difference}</strong></div>
-    </div>
-  )
-}
-
-function RecoveryContributionList({
-  title,
-  items,
-}: {
-  title: string
-  items: Array<{
-    label: string
-    coefficient: number
-    influencePercent: number
-    unit?: string
-  }>
-}) {
-  if (!items.length) return null
-  return (
-    <div className="relationship-toplist">
-      <span className="relationship-list-title">{title}</span>
-      {items.map((item) => (
-        <div key={item.label} className="relationship-item">
-          <div className="relationship-item-head">
-            <strong>{item.label}</strong>
-            <span>{Math.round(item.influencePercent * 100)}% influence</span>
-          </div>
-          <div className="relationship-impact-bar" aria-hidden="true">
-            <span
-              className={`relationship-impact-fill ${item.coefficient >= 0 ? 'is-positive' : 'is-negative'}`}
-              style={{ width: `${Math.max(8, Math.round(item.influencePercent * 100))}%` }}
-            />
-          </div>
-          <span>{item.coefficient >= 0 ? 'Higher' : 'Lower'} {item.label.toLowerCase()} tends to align with {item.coefficient >= 0 ? 'higher' : 'lower'} recovery ({signedNumber(item.coefficient, 2)} standardized effect{item.unit ? `, ${item.unit}` : ''}).</span>
-        </div>
-      ))}
     </div>
   )
 }
@@ -674,8 +676,8 @@ export function ActivityView({ data, analysisMode, setAnalysisMode }: ViewProps)
   const validSteps = stepValues.filter(hasValue)
   const averageSteps = validSteps.length ? validSteps.reduce((sum, value) => sum + value, 0) / validSteps.length : null
   const stepsByHour = hourlyBuckets(data.activity.stepsIntraday)
-  const weeklySteps = weeklyAggregates(data.trends, 'steps')
-  const sportGroups = useMemo(() => sportDetails(data.activities), [data.activities])
+  const statSteps = analysisMode === 'monthly' ? monthlyAggregates(data.trends, 'steps') : weeklyAggregates(data.trends, 'steps')
+  const sportGroups = useMemo(() => sportDetails(data.activities, statPeriod(analysisMode)), [analysisMode, data.activities])
   const [selectedSport, setSelectedSport] = useState<string>('')
   useEffect(() => {
     if (!sportGroups.length) {
@@ -687,6 +689,7 @@ export function ActivityView({ data, analysisMode, setAnalysisMode }: ViewProps)
   const activeSport = sportGroups.find((group) => group.sport === selectedSport) ?? sportGroups[0] ?? null
   const zoneValues = activeSport?.zonePercentages.map((zone) => zone.percentage) ?? []
   const zoneLabels = activeSport?.zonePercentages.map((zone) => zone.label) ?? []
+  const zoneColors = ['var(--color-cyan)', 'var(--color-emerald)', 'var(--category-activity)', 'var(--category-heart)']
   const supporting = [
     hasValue(data.activity.floors) ? { label: 'Floors', value: formatNumber(data.activity.floors), icon: FloorsIcon } : null,
     hasValue(data.activity.lightActiveMinutes) ? { label: 'Light activity', value: formatNumber(data.activity.lightActiveMinutes), unit: 'min', icon: ActivityIcon } : null,
@@ -732,13 +735,13 @@ export function ActivityView({ data, analysisMode, setAnalysisMode }: ViewProps)
         {validSteps.length > 1 && (
           <Panel className="chart-panel" category="activity">
             <PanelHeader
-              eyebrow={analysisMode === 'weekly' ? `${weeklySteps.length} weeks with data` : `${validSteps.length} days with data`}
-              title={analysisMode === 'weekly' ? 'Weekly steps' : 'Daily steps'}
+              eyebrow={isStatMode(analysisMode) ? `${statSteps.length} ${periodNoun(analysisMode)} with data` : `${validSteps.length} days with data`}
+              title={isStatMode(analysisMode) ? `${periodAdjective(analysisMode)} steps` : 'Daily steps'}
               icon={TrendIcon}
               action={averageSteps !== null ? <Badge variant="secondary">Average {formatNumber(averageSteps)}</Badge> : <AnalysisModeToggle value={analysisMode} onChange={setAnalysisMode} />}
             />
-            {analysisMode === 'weekly' ? (
-              <WeeklyStatChart weeks={weeklySteps} color="var(--category-activity)" height={226} formatter={(value) => `${formatNumber(value)} steps`} ariaLabel="Weekly step distribution" />
+            {isStatMode(analysisMode) ? (
+              <WeeklyStatChart weeks={statSteps} color="var(--category-activity)" height={226} formatter={(value) => `${formatNumber(value)} steps`} ariaLabel={`${periodAdjective(analysisMode)} step distribution`} />
             ) : (
               <ColumnChart values={stepValues} labels={trendLabels(data)} xValues={trendXValues(data)} target={data.activity.stepsGoal} height={226} ariaLabel="Total steps per day" />
             )}
@@ -749,19 +752,19 @@ export function ActivityView({ data, analysisMode, setAnalysisMode }: ViewProps)
       {hasActivityTrends && (
         <section>
           <SectionTitle
-            title={analysisMode === 'weekly' ? 'Weekly activity statistics' : 'Activity trends'}
-            copy={analysisMode === 'weekly' ? 'Monday-Sunday weekly means with standard deviation and daily outlier highlighting.' : 'Daily series returned by Google Health.'}
+            title={isStatMode(analysisMode) ? `${periodAdjective(analysisMode)} activity statistics` : 'Activity trends'}
+            copy={isStatMode(analysisMode) ? periodDescription(analysisMode) : 'Daily series returned by Google Health.'}
             action={<AnalysisModeToggle value={analysisMode} onChange={setAnalysisMode} />}
           />
           <div className="metric-trend-grid">
-            {analysisMode === 'weekly' ? (
+            {isStatMode(analysisMode) ? (
               <>
-                <WeeklyMetricTrendPanel data={data} category="activity" icon={CaloriesIcon} title="Calories burned" metric="calories" formatter={(value) => `${formatNumber(value)} kcal`} />
-                <WeeklyMetricTrendPanel data={data} category="activity" icon={DistanceIcon} title="Distance" metric="distanceKm" formatter={(value) => `${formatDecimal(value)} km`} />
-                <WeeklyMetricTrendPanel data={data} category="activity" icon={ActiveIcon} title="Active minutes" metric="activeMinutes" formatter={(value) => `${formatNumber(value)} min`} />
-                <WeeklyMetricTrendPanel data={data} category="activity" icon={GaugeIcon} title="Zone minutes" metric="zoneMinutes" formatter={(value) => `${formatNumber(value)} min`} />
-                <WeeklyMetricTrendPanel data={data} category="activity" icon={DurationIcon} title="Sedentary time" metric="sedentaryMinutes" formatter={(value) => formatMinutes(value)} />
-                <WeeklyMetricTrendPanel data={data} category="activity" icon={FloorsIcon} title="Floors" metric="floors" formatter={(value) => formatNumber(value)} />
+                <WeeklyMetricTrendPanel data={data} mode={statPeriod(analysisMode)} category="activity" icon={CaloriesIcon} title="Calories burned" metric="calories" formatter={(value) => `${formatNumber(value)} kcal`} />
+                <WeeklyMetricTrendPanel data={data} mode={statPeriod(analysisMode)} category="activity" icon={DistanceIcon} title="Distance" metric="distanceKm" formatter={(value) => `${formatDecimal(value)} km`} />
+                <WeeklyMetricTrendPanel data={data} mode={statPeriod(analysisMode)} category="activity" icon={ActiveIcon} title="Active minutes" metric="activeMinutes" formatter={(value) => `${formatNumber(value)} min`} />
+                <WeeklyMetricTrendPanel data={data} mode={statPeriod(analysisMode)} category="activity" icon={GaugeIcon} title="Zone minutes" metric="zoneMinutes" formatter={(value) => `${formatNumber(value)} min`} />
+                <WeeklyMetricTrendPanel data={data} mode={statPeriod(analysisMode)} category="activity" icon={DurationIcon} title="Sedentary time" metric="sedentaryMinutes" formatter={(value) => formatMinutes(value)} />
+                <WeeklyMetricTrendPanel data={data} mode={statPeriod(analysisMode)} category="activity" icon={FloorsIcon} title="Floors" metric="floors" formatter={(value) => formatNumber(value)} />
               </>
             ) : (
               <>
@@ -777,7 +780,7 @@ export function ActivityView({ data, analysisMode, setAnalysisMode }: ViewProps)
         </section>
       )}
 
-      {analysisMode === 'weekly' && sportGroups.length > 0 && activeSport && (
+      {isStatMode(analysisMode) && sportGroups.length > 0 && activeSport && (
         <section>
           <SectionTitle title="Activities" copy="Select one activity type to inspect it in detail." />
           <div className="sport-detail-layout">
@@ -799,16 +802,16 @@ export function ActivityView({ data, analysisMode, setAnalysisMode }: ViewProps)
               </div>
               <div className="sport-detail-charts">
                 <Panel className="chart-panel compact-chart-panel" category="activity">
-                  <PanelHeader eyebrow={`${activeSport.weeklyDuration.length} weeks`} title="Average duration" icon={DurationIcon} />
-                  <ColumnChart values={activeSport.weeklyDuration.map((week) => week.mean)} labels={activeSport.weeklyDuration.map((week) => week.shortLabel)} color="var(--category-activity)" height={176} formatter={(value) => `${formatNumber(value)} min`} ariaLabel={`${activeSport.sport} weekly average duration`} />
+                  <PanelHeader eyebrow={`${activeSport.durationDistribution.reduce((sum, bin) => sum + bin.count, 0)} sessions`} title="Duration distribution" icon={DurationIcon} />
+                  <ColumnChart values={activeSport.durationDistribution.map((bin) => bin.percentage)} labels={activeSport.durationDistribution.map((bin) => bin.label)} color="var(--category-activity)" height={176} formatter={(value) => `${formatNumber(value)}%`} ariaLabel={`${activeSport.sport} duration distribution`} />
                 </Panel>
                 <Panel className="chart-panel compact-chart-panel" category="heart">
-                  <PanelHeader eyebrow={`${activeSport.weeklyHeartRate.length} weeks`} title="Average heart rate" icon={HeartIcon} />
-                  <ColumnChart values={activeSport.weeklyHeartRate.map((week) => week.mean)} labels={activeSport.weeklyHeartRate.map((week) => week.shortLabel)} color="var(--category-heart)" height={176} formatter={(value) => `${formatNumber(value)} bpm`} ariaLabel={`${activeSport.sport} weekly average heart rate`} />
+                  <PanelHeader eyebrow={`${activeSport.heartRateDistribution.reduce((sum, bin) => sum + bin.count, 0)} sessions`} title="Heart-rate distribution" icon={HeartIcon} />
+                  <ColumnChart values={activeSport.heartRateDistribution.map((bin) => bin.percentage)} labels={activeSport.heartRateDistribution.map((bin) => bin.label)} color="var(--category-heart)" height={176} formatter={(value) => `${formatNumber(value)}%`} ariaLabel={`${activeSport.sport} heart-rate distribution`} />
                 </Panel>
                 <Panel className="chart-panel compact-chart-panel" category="activity">
-                  <PanelHeader eyebrow="Across selected activity" title="Average zone %" icon={GaugeIcon} />
-                  <ColumnChart values={zoneValues} labels={zoneLabels} color="var(--category-recovery)" height={176} formatter={(value) => `${formatNumber(value)}%`} ariaLabel={`${activeSport.sport} average heart-rate zone percentages`} />
+                  <PanelHeader eyebrow="Across selected activity" title="Zone distribution" icon={GaugeIcon} />
+                  <ColumnChart values={zoneValues} labels={zoneLabels} barColors={zoneColors} color="var(--category-recovery)" height={176} formatter={(value) => `${formatNumber(value)}%`} ariaLabel={`${activeSport.sport} average heart-rate zone percentages`} />
                 </Panel>
               </div>
             </Panel>
@@ -817,10 +820,10 @@ export function ActivityView({ data, analysisMode, setAnalysisMode }: ViewProps)
       )}
 
       <section>
-        <SectionTitle title="Workouts" copy={analysisMode === 'weekly' && activeSport ? `${activeSport.activityCount} ${activeSport.sport} sessions in the synced period` : `${data.activities.length} activities in the synced period`} />
+        <SectionTitle title="Workouts" copy={isStatMode(analysisMode) && activeSport ? `${activeSport.activityCount} ${activeSport.sport} sessions in the synced period` : `${data.activities.length} activities in the synced period`} />
         <Panel className="activity-panel full-list" category="activity">
-          {(analysisMode === 'weekly' && activeSport ? activeSport.sessions : data.activities).map((item, index) => <div key={item.id}>{index > 0 && <Separator />}<CompactActivity item={item} detailed /></div>)}
-          {!(analysisMode === 'weekly' && activeSport ? activeSport.sessions.length : data.activities.length) && <EmptyValue>No workouts recorded during this period.</EmptyValue>}
+          {(isStatMode(analysisMode) && activeSport ? activeSport.sessions : data.activities).map((item, index) => <div key={item.id}>{index > 0 && <Separator />}<CompactActivity item={item} detailed /></div>)}
+          {!(isStatMode(analysisMode) && activeSport ? activeSport.sessions.length : data.activities.length) && <EmptyValue>No workouts recorded during this period.</EmptyValue>}
         </Panel>
       </section>
 
@@ -834,7 +837,7 @@ export function HealthView({ data, analysisMode, setAnalysisMode }: ViewProps) {
   const heartLabels = data.health.heartRateIntraday.map((point) => point.time)
   const restingValues = data.trends.map((point) => point.restingHeartRate)
   const restingCount = restingValues.filter(hasValue).length
-  const restingWeeks = weeklyAggregates(data.trends, 'restingHeartRate')
+  const restingWeeks = analysisMode === 'monthly' ? monthlyAggregates(data.trends, 'restingHeartRate') : weeklyAggregates(data.trends, 'restingHeartRate')
   const signals = overnightSignals(data)
   const secondary = presentSignals([
     hasValue(data.health.recoveryScore) ? { label: 'Recovery', value: formatNumber(data.health.recoveryScore), unit: '%', note: 'WHOOP recovery score', icon: GaugeIcon } : null,
@@ -843,7 +846,7 @@ export function HealthView({ data, analysisMode, setAnalysisMode }: ViewProps) {
     hasValue(data.health.bloodGlucoseMgDl) ? { label: 'Blood glucose', value: formatNumber(data.health.bloodGlucoseMgDl), unit: 'mg/dL', note: 'Latest measurement', icon: WaterIcon } : null,
     hasValue(data.health.irregularRhythmAlerts) ? { label: 'Irregular rhythm', value: formatNumber(data.health.irregularRhythmAlerts), unit: 'alerts', note: 'During the synced period', icon: ShieldIcon } : null,
     data.health.ecgClassification ? { label: 'ECG', value: data.health.ecgClassification, note: 'Latest classification', icon: HeartIcon } : null,
-    data.health.vo2Max ? { label: 'VO₂ max', value: data.health.vo2Max, unit: 'ml/kg/min', note: 'Cardio fitness estimate', icon: GaugeIcon } : null,
+    data.health.vo2Max ? { label: 'VO2 max', value: data.health.vo2Max, unit: 'ml/kg/min', note: 'Cardio fitness estimate', icon: GaugeIcon } : null,
   ])
   const hasHeartSummary = heartValues.length > 0 || hasValue(data.health.currentHeartRate) || hasValue(data.health.restingHeartRate)
   const physiologyTrendValues = [
@@ -857,37 +860,26 @@ export function HealthView({ data, analysisMode, setAnalysisMode }: ViewProps) {
     data.trends.map((point) => point.strain),
   ]
   const hasPhysiologyTrends = physiologyTrendValues.some((values) => values.filter(hasValue).length > 1)
-  const maybeRecoveryModel = useMemo(() => analysisMode === 'weekly' ? buildRecoveryModel(data) : null, [analysisMode, data])
-  const recoveryModel = maybeRecoveryModel ?? {
-    outcome: { key: 'recoveryScore', label: 'Recovery', unit: '%', accessor: () => null },
-    predictors: [],
-    sampleCount: 0,
-    explainedVariance: 0,
-    intercept: 0,
-    contributions: [],
-    points: [],
-  }
-  const recoveryFitPoints = useMemo(() => maybeRecoveryModel?.points.map((point) => ({
+  const allModels = useMemo(() => isStatMode(analysisMode) ? buildOutcomeModels(data) : [], [analysisMode, data])
+  const [selectedModelKey, setSelectedModelKey] = useState<string>('')
+
+  useEffect(() => {
+    if (!allModels.length) {
+      setSelectedModelKey('')
+      return
+    }
+    if (!allModels.some((model) => model.outcome.key === selectedModelKey)) {
+      setSelectedModelKey(allModels[0].outcome.key)
+    }
+  }, [allModels, selectedModelKey])
+
+  const selectedModel = allModels.find((model) => model.outcome.key === selectedModelKey) ?? allModels[0] ?? null
+  const selectedFitPoints = useMemo(() => selectedModel?.points.map((point) => ({
     x: point.actual,
     y: point.predicted,
     label: formatDate(point.date, { day: 'numeric', month: 'short' }),
-  })) ?? [], [maybeRecoveryModel])
-  const positiveContributions = maybeRecoveryModel?.contributions.filter((item) => item.direction === 'positive') ?? []
-  const negativeContributions = maybeRecoveryModel?.contributions.filter((item) => item.direction === 'negative') ?? []
-  const relationshipSummary = { positive: [], negative: [] } as {
-    positive: Array<{ x: { key: string; label: string }; y: { key: string; label: string }; correlation: number; explainedVariance: number }>
-    negative: Array<{ x: { key: string; label: string }; y: { key: string; label: string }; correlation: number; explainedVariance: number }>
-  }
-  const driverOptions: Array<{ key: string; label: string }> = []
-  const outcomeOptions: Array<{ key: string; label: string }> = []
-  const selectedDriver = ''
-  const selectedOutcome = ''
-  const setSelectedDriver = (_value: string) => {}
-  const setSelectedOutcome = (_value: string) => {}
-  const selectedDriverVariable: { label: string; unit?: string } = { label: 'Driver' }
-  const selectedOutcomeVariable: { label: string; unit?: string } = { label: 'Outcome' }
-  const scatterPoints: Array<{ x: number; y: number; label: string }> = []
-  const scatterCorrelation: { explainedVariance: number; correlation: number } = { explainedVariance: 0, correlation: 0 }
+  })) ?? [], [selectedModel])
+  const modelOptions = allModels.map((model) => ({ key: model.outcome.key, label: model.outcome.label }))
 
   return (
     <div className="page-stack health-page">
@@ -897,7 +889,7 @@ export function HealthView({ data, analysisMode, setAnalysisMode }: ViewProps) {
           <div className="heart-kpis">
             {hasValue(data.health.currentHeartRate) && <div className="primary-kpi"><strong>{formatNumber(data.health.currentHeartRate)}</strong><span>recent bpm</span></div>}
             {hasValue(data.health.restingHeartRate) && <TinyStat label="At rest" value={formatNumber(data.health.restingHeartRate)} unit=" bpm" />}
-            {hasValue(data.health.heartRateMin) && <TinyStat label="Range" value={`${formatNumber(data.health.heartRateMin)}–${formatNumber(data.health.heartRateMax)}`} unit=" bpm" />}
+            {hasValue(data.health.heartRateMin) && <TinyStat label="Range" value={`${formatNumber(data.health.heartRateMin)}-${formatNumber(data.health.heartRateMax)}`} unit=" bpm" />}
           </div>
           {heartValues.length > 0 && (
             <LineChart
@@ -925,16 +917,16 @@ export function HealthView({ data, analysisMode, setAnalysisMode }: ViewProps) {
           </section>
         )}
 
-        {(analysisMode === 'weekly' ? restingWeeks.length > 0 : restingCount > 1) && (
+        {(isStatMode(analysisMode) ? restingWeeks.length > 0 : restingCount > 1) && (
           <section>
             <SectionTitle
               title="Resting heart rate"
-              copy={analysisMode === 'weekly' ? `${restingWeeks.length} weeks with data` : `${restingCount} days with data`}
+              copy={isStatMode(analysisMode) ? `${restingWeeks.length} ${periodNoun(analysisMode)} with data` : `${restingCount} days with data`}
               action={<AnalysisModeToggle value={analysisMode} onChange={setAnalysisMode} />}
             />
             <Panel className="chart-panel compact-chart-panel" category="heart">
-              {analysisMode === 'weekly'
-                ? <WeeklyStatChart weeks={restingWeeks} color="var(--category-heart)" height={226} formatter={(value) => `${Math.round(value)} bpm`} ariaLabel="Resting heart rate weekly statistical trend" />
+              {isStatMode(analysisMode)
+                ? <WeeklyStatChart weeks={restingWeeks} color="var(--category-heart)" height={226} formatter={(value) => `${Math.round(value)} bpm`} ariaLabel={`Resting heart rate ${analysisMode} statistical trend`} />
                 : <LineChart values={restingValues} labels={trendLabels(data)} xValues={trendXValues(data)} color="var(--category-heart)" height={226} formatter={(value) => `${Math.round(value)} bpm`} ariaLabel="Resting heart rate trend" />}
             </Panel>
           </section>
@@ -944,29 +936,29 @@ export function HealthView({ data, analysisMode, setAnalysisMode }: ViewProps) {
       {hasPhysiologyTrends && (
         <section>
           <SectionTitle
-            title={analysisMode === 'weekly' ? 'Weekly physiological statistics' : 'Physiological trends'}
-            copy={analysisMode === 'weekly' ? 'Monday-Sunday weekly means with standard deviation and daily outlier highlighting.' : 'Compare measurements with your personal trends, not generic thresholds.'}
+            title={isStatMode(analysisMode) ? `${periodAdjective(analysisMode)} physiological statistics` : 'Physiological trends'}
+            copy={isStatMode(analysisMode) ? periodDescription(analysisMode) : 'Compare measurements with your personal trends, not generic thresholds.'}
             action={<AnalysisModeToggle value={analysisMode} onChange={setAnalysisMode} />}
           />
           <div className="metric-trend-grid">
-            {analysisMode === 'weekly' ? (
+            {isStatMode(analysisMode) ? (
               <>
-                <WeeklyMetricTrendPanel data={data} category="heart" icon={SignalIcon} title="HRV" metric="hrvMs" formatter={(value) => `${formatDecimal(value)} ms`} />
-                <WeeklyMetricTrendPanel data={data} category="heart" icon={CloudIcon} title="Average SpO₂" metric="spo2" formatter={(value) => `${formatDecimal(value)}%`} />
-                <WeeklyMetricTrendPanel data={data} category="heart" icon={BreathingIcon} title="Breathing rate" metric="breathingRate" formatter={(value) => `${formatDecimal(value)} rpm`} />
-                <WeeklyMetricTrendPanel data={data} category="recovery" icon={GaugeIcon} title="Skin temperature" metric="skinTemperature" formatter={(value) => `${signedNumber(value, 1)} °C`} />
-                <WeeklyMetricTrendPanel data={data} category="recovery" icon={GaugeIcon} title="Body temperature" metric="coreTemperature" formatter={(value) => `${formatDecimal(value)} °C`} />
-                <WeeklyMetricTrendPanel data={data} category="heart" icon={GaugeIcon} title="Cardio fitness" metric="cardioScore" formatter={(value) => formatNumber(value)} />
-                <WeeklyMetricTrendPanel data={data} category="recovery" icon={GaugeIcon} title="Recovery" metric="recoveryScore" formatter={(value) => `${formatNumber(value)}%`} />
-                <WeeklyMetricTrendPanel data={data} category="activity" icon={ActivityIcon} title="Strain" metric="strain" formatter={(value) => formatDecimal(value)} />
+                <WeeklyMetricTrendPanel data={data} mode={statPeriod(analysisMode)} category="heart" icon={SignalIcon} title="HRV" metric="hrvMs" formatter={(value) => `${formatDecimal(value)} ms`} />
+                <WeeklyMetricTrendPanel data={data} mode={statPeriod(analysisMode)} category="heart" icon={CloudIcon} title="Average SpO2" metric="spo2" formatter={(value) => `${formatDecimal(value)}%`} />
+                <WeeklyMetricTrendPanel data={data} mode={statPeriod(analysisMode)} category="heart" icon={BreathingIcon} title="Breathing rate" metric="breathingRate" formatter={(value) => `${formatDecimal(value)} rpm`} />
+                <WeeklyMetricTrendPanel data={data} mode={statPeriod(analysisMode)} category="recovery" icon={GaugeIcon} title="Skin temperature" metric="skinTemperature" formatter={(value) => `${signedNumber(value, 1)} C`} />
+                <WeeklyMetricTrendPanel data={data} mode={statPeriod(analysisMode)} category="recovery" icon={GaugeIcon} title="Body temperature" metric="coreTemperature" formatter={(value) => `${formatDecimal(value)} C`} />
+                <WeeklyMetricTrendPanel data={data} mode={statPeriod(analysisMode)} category="heart" icon={GaugeIcon} title="Cardio fitness" metric="cardioScore" formatter={(value) => formatNumber(value)} />
+                <WeeklyMetricTrendPanel data={data} mode={statPeriod(analysisMode)} category="recovery" icon={GaugeIcon} title="Recovery" metric="recoveryScore" formatter={(value) => `${formatNumber(value)}%`} />
+                <WeeklyMetricTrendPanel data={data} mode={statPeriod(analysisMode)} category="activity" icon={ActivityIcon} title="Strain" metric="strain" formatter={(value) => formatDecimal(value)} />
               </>
             ) : (
               <>
                 <MetricTrendPanel data={data} category="heart" icon={SignalIcon} title="HRV" values={data.trends.map((point) => point.hrvMs)} formatter={(value) => `${formatDecimal(value)} ms`} />
-                <MetricTrendPanel data={data} category="heart" icon={CloudIcon} title="Average SpO₂" values={data.trends.map((point) => point.spo2)} formatter={(value) => `${formatDecimal(value)}%`} />
+                <MetricTrendPanel data={data} category="heart" icon={CloudIcon} title="Average SpO2" values={data.trends.map((point) => point.spo2)} formatter={(value) => `${formatDecimal(value)}%`} />
                 <MetricTrendPanel data={data} category="heart" icon={BreathingIcon} title="Breathing rate" values={data.trends.map((point) => point.breathingRate)} formatter={(value) => `${formatDecimal(value)} rpm`} />
-                <MetricTrendPanel data={data} category="recovery" icon={GaugeIcon} title="Skin temperature" values={data.trends.map((point) => point.skinTemperature)} formatter={(value) => `${signedNumber(value, 1)} °C`} />
-                <MetricTrendPanel data={data} category="recovery" icon={GaugeIcon} title="Body temperature" values={data.trends.map((point) => point.coreTemperature)} formatter={(value) => `${formatDecimal(value)} °C`} />
+                <MetricTrendPanel data={data} category="recovery" icon={GaugeIcon} title="Skin temperature" values={data.trends.map((point) => point.skinTemperature)} formatter={(value) => `${signedNumber(value, 1)} C`} />
+                <MetricTrendPanel data={data} category="recovery" icon={GaugeIcon} title="Body temperature" values={data.trends.map((point) => point.coreTemperature)} formatter={(value) => `${formatDecimal(value)} C`} />
                 <MetricTrendPanel data={data} category="heart" icon={GaugeIcon} title="Cardio fitness" values={data.trends.map((point) => point.cardioScore)} formatter={(value) => formatNumber(value)} />
                 <MetricTrendPanel data={data} category="recovery" icon={GaugeIcon} title="Recovery" values={data.trends.map((point) => point.recoveryScore)} formatter={(value) => `${formatNumber(value)}%`} target={70} />
                 <MetricTrendPanel data={data} category="activity" icon={ActivityIcon} title="Strain" values={data.trends.map((point) => point.strain)} formatter={(value) => formatDecimal(value)} />
@@ -985,28 +977,32 @@ export function HealthView({ data, analysisMode, setAnalysisMode }: ViewProps) {
         </section>
       )}
 
-      {false && analysisMode === 'weekly' && recoveryModel && (
+      {isStatMode(analysisMode) && selectedModel && (
         <section>
-          <SectionTitle title="Recovery drivers" copy="A multivariable daily model estimates which normalized metrics move most with recovery across overlapping observations." />
+          <SectionTitle
+            title="Metric drivers"
+            copy="Pick an outcome metric and inspect the multivariable model, contributor ranking, and actual-vs-predicted regression built from overlapping daily observations."
+            action={<MetricSelect label="Metric" value={selectedModelKey} options={modelOptions} onChange={setSelectedModelKey} />}
+          />
           <div className="relationship-layout">
             <Panel className="relationship-matrix-panel" category="recovery">
               <PanelHeader
-                eyebrow={`${recoveryModel.sampleCount} overlapping days`}
-                title="Recovery model summary"
+                eyebrow={`${selectedModel.sampleCount} overlapping days`}
+                title={`${selectedModel.outcome.label} model summary`}
                 icon={GaugeIcon}
-                action={<Badge variant="secondary">{Math.round(recoveryModel.explainedVariance * 100)}% explained</Badge>}
+                action={<Badge variant="secondary">{Math.round(selectedModel.explainedVariance * 100)}% explained</Badge>}
               />
               <div className="relationship-summary-stats">
-                <TinyStat label="Outcome" value={recoveryModel.outcome.label} />
-                <TinyStat label="Predictors" value={formatNumber(recoveryModel.predictors.length)} />
-                <TinyStat label="Model fit" value={`${Math.round(recoveryModel.explainedVariance * 100)}%`} />
+                <TinyStat label="Outcome" value={selectedModel.outcome.label} />
+                <TinyStat label="Predictors" value={formatNumber(selectedModel.predictors.length)} />
+                <TinyStat label="Model fit" value={`${Math.round(selectedModel.explainedVariance * 100)}%`} />
               </div>
               <div className="relationship-model-copy">
                 <p>We fit a standardized linear model on daily overlaps, then rank drivers by coefficient size so the strongest contributors are easy to read.</p>
-                <p>Positive coefficients line up with better recovery. Negative coefficients line up with lower recovery.</p>
+                <p>Positive coefficients line up with higher {selectedModel.outcome.label.toLowerCase()}. Negative coefficients line up with lower {selectedModel.outcome.label.toLowerCase()}.</p>
               </div>
               <div className="relationship-driver-list">
-                {recoveryModel.contributions.map((item) => (
+                {selectedModel.contributions.map((item) => (
                   <div key={item.variable.key} className="relationship-driver-row">
                     <div className="relationship-item-head">
                       <strong>{item.variable.label}</strong>
@@ -1023,132 +1019,21 @@ export function HealthView({ data, analysisMode, setAnalysisMode }: ViewProps) {
                 ))}
               </div>
             </Panel>
-            <Panel className="relationship-summary-panel" category="recovery">
-              <PanelHeader eyebrow="Strongest contributors" title="Direction of effect" icon={SignalIcon} />
-              <div className="relationship-toplists">
-                <div>
-                  <span className="relationship-list-title">Top positive</span>
-                  {relationshipSummary.positive.map((pair) => (
-                    <div key={`${pair.x.key}-${pair.y.key}`} className="relationship-item">
-                      <strong>{pair.x.label} vs {pair.y.label}</strong>
-                      <span>{Math.round(pair.correlation * 100)}% correlation · {Math.round(pair.explainedVariance * 100)}% explained</span>
-                    </div>
-                  ))}
-                </div>
-                <div>
-                  <span className="relationship-list-title">Top negative</span>
-                  {relationshipSummary.negative.map((pair) => (
-                    <div key={`${pair.x.key}-${pair.y.key}`} className="relationship-item">
-                      <strong>{pair.x.label} vs {pair.y.label}</strong>
-                      <span>{Math.round(pair.correlation * 100)}% correlation · {Math.round(pair.explainedVariance * 100)}% explained</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </Panel>
           </div>
-          {selectedDriverVariable && selectedOutcomeVariable && (
+          {selectedFitPoints.length >= 2 && (
             <Panel className="relationship-scatter-panel" category="recovery">
               <PanelHeader
-                eyebrow={scatterCorrelation ? `${Math.round(scatterCorrelation.explainedVariance * 100)}% explained variance` : 'Relationship explorer'}
-                title="Scatter and regression"
+                eyebrow={`${selectedModel.sampleCount} modeled observations`}
+                title={`Actual vs predicted ${selectedModel.outcome.label.toLowerCase()}`}
                 icon={TrendIcon}
-                action={scatterCorrelation ? <Badge variant="secondary">{Math.round(scatterCorrelation.correlation * 100)}% correlation</Badge> : null}
-              />
-              <div className="relationship-controls">
-                <MetricSelect label="Driver" value={selectedDriver} options={driverOptions} onChange={setSelectedDriver} />
-                <MetricSelect label="Outcome" value={selectedOutcome} options={outcomeOptions} onChange={setSelectedOutcome} />
-              </div>
-              <ScatterRegressionChart
-                points={scatterPoints}
-                xLabel={`${selectedDriverVariable.label}${selectedDriverVariable.unit ? ` (${selectedDriverVariable.unit})` : ''}`}
-                yLabel={`${selectedOutcomeVariable.label}${selectedOutcomeVariable.unit ? ` (${selectedOutcomeVariable.unit})` : ''}`}
-                xFormatter={(value) => `${formatNumber(value)}${selectedDriverVariable.unit ? ` ${selectedDriverVariable.unit}` : ''}`}
-                yFormatter={(value) => `${formatNumber(value)}${selectedOutcomeVariable.unit ? ` ${selectedOutcomeVariable.unit}` : ''}`}
-                color="var(--category-recovery)"
-                height={320}
-              />
-            </Panel>
-          )}
-        </section>
-      )}
-
-      {analysisMode === 'weekly' && maybeRecoveryModel && (
-        <section>
-          <SectionTitle title="Recovery drivers" copy="A multivariable daily model estimates which normalized metrics move most with recovery across overlapping observations." />
-          <div className="relationship-layout">
-            <Panel className="relationship-matrix-panel" category="recovery">
-              <PanelHeader
-                eyebrow={`${recoveryModel.sampleCount} overlapping days`}
-                title="Recovery model summary"
-                icon={GaugeIcon}
-                action={<Badge variant="secondary">{Math.round(recoveryModel.explainedVariance * 100)}% explained</Badge>}
-              />
-              <div className="relationship-summary-stats">
-                <TinyStat label="Outcome" value={recoveryModel.outcome.label} />
-                <TinyStat label="Predictors" value={formatNumber(recoveryModel.predictors.length)} />
-                <TinyStat label="Model fit" value={`${Math.round(recoveryModel.explainedVariance * 100)}%`} />
-              </div>
-              <div className="relationship-model-copy">
-                <p>We fit a standardized linear model on daily overlaps, then rank drivers by coefficient size so the strongest contributors are easy to read.</p>
-                <p>Positive coefficients line up with better recovery. Negative coefficients line up with lower recovery.</p>
-              </div>
-              <div className="relationship-driver-list">
-                {recoveryModel.contributions.map((item) => (
-                  <div key={item.variable.key} className="relationship-driver-row">
-                    <div className="relationship-item-head">
-                      <strong>{item.variable.label}</strong>
-                      <span>{signedNumber(item.coefficient, 2)}</span>
-                    </div>
-                    <div className="relationship-impact-bar" aria-hidden="true">
-                      <span
-                        className={`relationship-impact-fill ${item.direction === 'positive' ? 'is-positive' : 'is-negative'}`}
-                        style={{ width: `${Math.max(8, Math.round(item.influencePercent * 100))}%` }}
-                      />
-                    </div>
-                    <span>{Math.round(item.influencePercent * 100)}% of the modeled signal</span>
-                  </div>
-                ))}
-              </div>
-            </Panel>
-            <Panel className="relationship-summary-panel" category="recovery">
-              <PanelHeader eyebrow="Strongest contributors" title="Direction of effect" icon={SignalIcon} />
-              <div className="relationship-toplists">
-                <RecoveryContributionList
-                  title="Top positive"
-                  items={positiveContributions.map((item) => ({
-                    label: item.variable.label,
-                    coefficient: item.coefficient,
-                    influencePercent: item.influencePercent,
-                    unit: item.variable.unit,
-                  }))}
-                />
-                <RecoveryContributionList
-                  title="Top negative"
-                  items={negativeContributions.map((item) => ({
-                    label: item.variable.label,
-                    coefficient: item.coefficient,
-                    influencePercent: item.influencePercent,
-                    unit: item.variable.unit,
-                  }))}
-                />
-              </div>
-            </Panel>
-          </div>
-          {recoveryFitPoints.length >= 2 && (
-            <Panel className="relationship-scatter-panel" category="recovery">
-              <PanelHeader
-                eyebrow={`${recoveryModel.sampleCount} modeled observations`}
-                title="Actual vs predicted recovery"
-                icon={TrendIcon}
-                action={<Badge variant="secondary">{Math.round(recoveryModel.explainedVariance * 100)}% explained</Badge>}
+                action={<Badge variant="secondary">{Math.round(selectedModel.explainedVariance * 100)}% explained</Badge>}
               />
               <ScatterRegressionChart
-                points={recoveryFitPoints}
-                xLabel="Actual recovery (%)"
-                yLabel="Predicted recovery (%)"
-                xFormatter={(value) => `${formatNumber(value)}%`}
-                yFormatter={(value) => `${formatNumber(value)}%`}
+                points={selectedFitPoints}
+                xLabel={`Actual ${selectedModel.outcome.label}${selectedModel.outcome.unit ? ` (${selectedModel.outcome.unit})` : ''}`}
+                yLabel={`Predicted ${selectedModel.outcome.label}${selectedModel.outcome.unit ? ` (${selectedModel.outcome.unit})` : ''}`}
+                xFormatter={(value) => `${formatNumber(value)}${selectedModel.outcome.unit ? ` ${selectedModel.outcome.unit}` : ''}`}
+                yFormatter={(value) => `${formatNumber(value)}${selectedModel.outcome.unit ? ` ${selectedModel.outcome.unit}` : ''}`}
                 color="var(--category-recovery)"
                 height={320}
               />
@@ -1162,11 +1047,10 @@ export function HealthView({ data, analysisMode, setAnalysisMode }: ViewProps) {
     </div>
   )
 }
-
 export function SleepView({ data, analysisMode, setAnalysisMode }: ViewProps) {
   const sleepValues = data.trends.map((point) => point.sleepMinutes)
   const sleepCount = sleepValues.filter(hasValue).length
-  const sleepWeeks = weeklyAggregates(data.trends, 'sleepMinutes')
+  const sleepWeeks = analysisMode === 'monthly' ? monthlyAggregates(data.trends, 'sleepMinutes') : weeklyAggregates(data.trends, 'sleepMinutes')
   const efficiencyValues = data.trends.map((point) => point.sleepEfficiency)
   const efficiencyCount = efficiencyValues.filter(hasValue).length
   const scoreValues = data.trends.map((point) => point.sleepScore ?? point.sleepPerformance)
@@ -1242,26 +1126,26 @@ export function SleepView({ data, analysisMode, setAnalysisMode }: ViewProps) {
         </Panel>
       )}
 
-      {(analysisMode === 'weekly' ? sleepWeeks.length > 0 || efficiencyCount > 1 || scoreCount > 1 : sleepCount > 1 || efficiencyCount > 1 || scoreCount > 1) && (
+      {(isStatMode(analysisMode) ? sleepWeeks.length > 0 || efficiencyCount > 1 || scoreCount > 1 : sleepCount > 1 || efficiencyCount > 1 || scoreCount > 1) && (
         <section>
           <SectionTitle
-            title={analysisMode === 'weekly' ? 'Weekly sleep statistics' : 'Sleep trends'}
-            copy={analysisMode === 'weekly' ? 'Monday-Sunday weekly means with standard deviation and daily outlier highlighting.' : 'Duration and efficiency of recorded nights.'}
+            title={isStatMode(analysisMode) ? `${periodAdjective(analysisMode)} sleep statistics` : 'Sleep trends'}
+            copy={isStatMode(analysisMode) ? periodDescription(analysisMode) : 'Duration and efficiency of recorded nights.'}
             action={<AnalysisModeToggle value={analysisMode} onChange={setAnalysisMode} />}
           />
           <div className="chart-grid sleep-history-grid">
-            {(analysisMode === 'weekly' ? sleepWeeks.length > 0 : sleepCount > 1) && (
+            {(isStatMode(analysisMode) ? sleepWeeks.length > 0 : sleepCount > 1) && (
               <Panel className="chart-panel sleep-trend-panel" category="sleep">
-                <PanelHeader eyebrow={analysisMode === 'weekly' ? `${sleepWeeks.length} weeks with data` : `${sleepCount} nights with data`} title={analysisMode === 'weekly' ? 'Weekly sleep duration' : 'Duration per night'} icon={SleepIcon} />
-                {analysisMode === 'weekly'
-                  ? <WeeklyStatChart weeks={sleepWeeks} color="var(--category-sleep)" height={196} formatter={(value) => compactMinutes(value)} ariaLabel="Weekly sleep duration statistics" />
+                <PanelHeader eyebrow={isStatMode(analysisMode) ? `${sleepWeeks.length} ${periodNoun(analysisMode)} with data` : `${sleepCount} nights with data`} title={isStatMode(analysisMode) ? `${periodAdjective(analysisMode)} sleep duration` : 'Duration per night'} icon={SleepIcon} />
+                {isStatMode(analysisMode)
+                  ? <WeeklyStatChart weeks={sleepWeeks} color="var(--category-sleep)" height={196} formatter={(value) => compactMinutes(value)} ariaLabel={`${periodAdjective(analysisMode)} sleep duration statistics`} />
                   : <ColumnChart values={sleepValues} labels={trendLabels(data)} xValues={trendXValues(data)} target={data.sleep.goalMinutes} color="var(--category-sleep)" height={196} formatter={(value) => compactMinutes(value)} ariaLabel="Minutes of sleep per night" />}
               </Panel>
             )}
-            {analysisMode === 'weekly' ? (
+            {isStatMode(analysisMode) ? (
               <>
-                <WeeklyMetricTrendPanel data={data} category="sleep" icon={GaugeIcon} title="Efficiency" metric="sleepEfficiency" formatter={(value) => `${formatNumber(value)}%`} />
-                <WeeklyMetricTrendPanel data={data} category="sleep" icon={GaugeIcon} title="Sleep score / performance" metric={data.trends.some((point) => point.sleepScore !== null) ? 'sleepScore' : 'sleepPerformance'} formatter={(value) => `${formatNumber(value)}%`} />
+                <WeeklyMetricTrendPanel data={data} mode={statPeriod(analysisMode)} category="sleep" icon={GaugeIcon} title="Efficiency" metric="sleepEfficiency" formatter={(value) => `${formatNumber(value)}%`} />
+                <WeeklyMetricTrendPanel data={data} mode={statPeriod(analysisMode)} category="sleep" icon={GaugeIcon} title="Sleep score / performance" metric={data.trends.some((point) => point.sleepScore !== null) ? 'sleepScore' : 'sleepPerformance'} formatter={(value) => `${formatNumber(value)}%`} />
               </>
             ) : (
               <>

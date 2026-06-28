@@ -280,6 +280,7 @@ export function ColumnChart({
   labels = [],
   xValues,
   color = 'var(--color-indigo)',
+  barColors,
   height = 220,
   compact = false,
   formatter = (value) => formatNumber(value),
@@ -287,7 +288,7 @@ export function ColumnChart({
   targetLabel = 'Goal',
   ariaLabel = 'Values by period',
   showRangeLabels = false,
-}: BaseChartProps) {
+}: BaseChartProps & { barColors?: Array<string | null | undefined> }) {
   const [activeIndex, setActiveIndex] = useState<number | null>(null)
   const valid = finiteValues(values)
   const { containerRef, width } = useResponsiveChartWidth(valid.length > 0)
@@ -355,7 +356,7 @@ export function ColumnChart({
               width={barWidth}
               height={barHeight}
               rx={Math.min(4, barWidth / 3)}
-              fill={value === null ? 'var(--color-graphite)' : color}
+              fill={value === null ? 'var(--color-graphite)' : barColors?.[index] || color}
               opacity={value === null ? 0.3 : activeIndex === null || activeIndex === index ? 0.92 : 0.34}
               className="chart-column-mark"
               tabIndex={value === null ? undefined : 0}

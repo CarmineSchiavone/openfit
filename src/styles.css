@@ -2116,17 +2116,9 @@ input:focus-visible,
 .sport-detail-meta strong { color: var(--foreground); font-size: 14px; line-height: 1.5; }
 .sport-detail-charts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
 
-.relationship-layout { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr); gap: 16px; }
+.relationship-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
 .relationship-matrix-panel,
-.relationship-summary-panel,
 .relationship-scatter-panel { padding: 18px; }
-.relationship-toplists { display: grid; grid-template-columns: 1fr; gap: 14px; }
-.relationship-toplist { display: grid; gap: 2px; }
-.relationship-list-title { display: block; margin-bottom: 8px; color: var(--muted-foreground); font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; }
-.relationship-item { display: flex; flex-direction: column; gap: 4px; padding: 10px 0; }
-.relationship-item + .relationship-item { border-top: 1px solid var(--color-graphite); }
-.relationship-item strong { color: var(--foreground); font-size: 14px; font-weight: 560; }
-.relationship-item span { color: var(--muted-foreground); font-size: 13px; }
 .relationship-item-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 .relationship-summary-stats {
   display: grid;
@@ -2148,11 +2140,13 @@ input:focus-visible,
   line-height: 1.5;
 }
 .relationship-driver-list { display: grid; gap: 12px; }
+.relationship-driver-list.compact { gap: 8px; }
 .relationship-driver-row {
   display: grid;
   gap: 6px;
   padding: 12px 0;
 }
+.relationship-driver-row.compact { padding: 8px 0; }
 .relationship-driver-row + .relationship-driver-row { border-top: 1px solid var(--border); }
 .relationship-impact-bar {
   height: 8px;
@@ -2167,6 +2161,12 @@ input:focus-visible,
 }
 .relationship-impact-fill.is-positive { background: color-mix(in srgb, var(--color-emerald) 86%, black); }
 .relationship-impact-fill.is-negative { background: color-mix(in srgb, var(--color-crimson) 82%, black); }
+.relationship-model-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 16px;
+}
+.relationship-model-card { padding: 18px; }
 
 .metric-select { display: flex; min-width: 0; flex-direction: column; gap: 6px; }
 .metric-select span { color: var(--muted-foreground); font-size: 13px; }

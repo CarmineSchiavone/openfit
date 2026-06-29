@@ -237,7 +237,7 @@ export function groupActivitiesBySport(activities: ActivityItem[]): SportGroupSu
     })
 }
 
-function aggregatesFromSeries(points: Array<{ date: string; value: number | null }>, key: string, period: AggregatePeriod): WeeklyAggregate[] {
+export function seriesAggregates(points: Array<{ date: string; value: number | null }>, key: string, period: AggregatePeriod): WeeklyAggregate[] {
   const dated = points.filter((point): point is { date: string; value: number } => point.value !== null && Number.isFinite(point.value))
   if (!dated.length) return []
   const firstDate = dated[0].date
@@ -290,12 +290,12 @@ export function sportDetails(activities: ActivityItem[], period: AggregatePeriod
       .slice()
       .sort((left, right) => `${right.date}T${right.time || '00:00'}`.localeCompare(`${left.date}T${left.time || '00:00'}`))
 
-    const weeklyDuration = aggregatesFromSeries(
+    const weeklyDuration = seriesAggregates(
       sessions.map((session) => ({ date: session.date, value: session.durationMinutes || null })),
       `${group.sport}-duration`,
       period,
     )
-    const weeklyHeartRate = aggregatesFromSeries(
+    const weeklyHeartRate = seriesAggregates(
       sessions.map((session) => ({ date: session.date, value: session.averageHeartRate })),
       `${group.sport}-hr`,
       period,

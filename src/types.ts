@@ -1,5 +1,6 @@
 export type PageId = 'today' | 'activity' | 'health' | 'sleep' | 'body' | 'devices'
 export type AnalysisMode = 'daily' | 'weekly' | 'monthly'
+export type AgeEstimateReadiness = 'insufficient' | 'stabilizing' | 'ready'
 
 export type DataSource = 'demo' | 'fitbit' | 'google-health' | 'whoop' | 'cache'
 
@@ -8,6 +9,11 @@ export type HealthProvider = 'google-health' | 'fitbit-legacy' | 'whoop'
 export interface TimePoint {
   time: string
   value: number
+}
+
+export interface AnalysisRange {
+  startDate: string
+  endDate: string
 }
 
 export interface TrendPoint {
@@ -60,6 +66,27 @@ export interface WeeklyPoint {
   label: string
   value: number
   withinSd: boolean
+}
+
+export interface DerivedMetricPoint {
+  date: string
+  value: number
+}
+
+export interface PhysiologicalAgePoint extends DerivedMetricPoint {
+  sampleCount: number
+  windowStart: string
+  windowEnd: string
+  readiness: AgeEstimateReadiness
+}
+
+export interface PhysiologicalAgeEstimate {
+  value: number | null
+  sampleCount: number
+  windowStart: string | null
+  windowEnd: string | null
+  readiness: AgeEstimateReadiness
+  series: PhysiologicalAgePoint[]
 }
 
 export interface WeeklyAggregate {

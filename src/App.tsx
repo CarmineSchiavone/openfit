@@ -30,9 +30,10 @@ import {
   useSidebar,
 } from '@/components/ui/sidebar'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import type { AnalysisMode, DashboardData, FitbitAuthStatus, FitbitConfigInput, HealthProvider, PageId } from '@/types'
+import type { AnalysisMode, AnalysisRange, DashboardData, FitbitAuthStatus, FitbitConfigInput, HealthProvider, PageId } from '@/types'
 import { createDemoData, localIso } from '@/data/demo'
 import { normalizeFitbitData } from '@/data/normalize'
+import { clampAnalysisRange, defaultAnalysisRange, filterDashboardDataByRange } from '@/lib/analysis-window'
 import { formatDate, relativeTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { ActivityView, BodyView, DevicesView, HealthView, SleepView, TodayView } from '@/components/Views'
@@ -129,6 +130,7 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [assistantOpen, setAssistantOpen] = useState(false)
   const [analysisMode, setAnalysisMode] = useState<AnalysisMode>('daily')
+  const [analysisRange, setAnalysisRange] = useState<AnalysisRange | null>(null)
   const [syncing, setSyncing] = useState(false)
   const [syncTargetDate, setSyncTargetDate] = useState<string | null>(null)
   const [connecting, setConnecting] = useState(false)
@@ -151,6 +153,22 @@ export default function App() {
   useEffect(() => {
     dataDateRef.current = data.selectedDate
   }, [data.selectedDate])
+
+  const defaultRange = useMemo(() => defaultAnalysisRange(data.trends, data.selectedDate), [data.selectedDate, data.trends])
+  const normalizedAnalysisRange = useMemo(
+    () => clampAnalysisRange(analysisRange ?? defaultRange, data.trends, data.selectedDate),
+    [analysisRange, data.selectedDate, data.trends, defaultRange],
+  )
+  const analysisData = useMemo(
+    () => filterDashboardDataByRange(data, normalizedAnalysisRange),
+    [data, normalizedAnalysisRange],
+  )
+
+  useEffect(() => {
+    if (!analysisRange || analysisRange.startDate !== normalizedAnalysisRange.startDate || analysisRange.endDate !== normalizedAnalysisRange.endDate) {
+      setAnalysisRange(normalizedAnalysisRange)
+    }
+  }, [analysisRange, normalizedAnalysisRange])
 
   const loadNativeState = useCallback(async () => {
     if (!window.fitbit) return
@@ -341,14 +359,24 @@ export default function App() {
   }
 
   const currentView = useMemo(() => {
-    const props = { data, status, navigate: setPage, analysisMode, setAnalysisMode }
+    const props = {
+      data,
+      analysisData,
+      status,
+      navigate: setPage,
+      analysisMode,
+      setAnalysisMode,
+      analysisRange: normalizedAnalysisRange,
+      defaultAnalysisRange: defaultRange,
+      setAnalysisRange,
+    }
     if (page === 'activity') return <ActivityView {...props} />
     if (page === 'health') return <HealthView {...props} />
     if (page === 'sleep') return <SleepView {...props} />
     if (page === 'body') return <BodyView {...props} />
     if (page === 'devices') return <DevicesView {...props} />
     return <TodayView {...props} />
-  }, [analysisMode, data, page, status])
+  }, [analysisData, analysisMode, data, defaultRange, normalizedAnalysisRange, page, status])
 
   const isToday = selectedDate === localIso()
   const sourceLabel = status.connected

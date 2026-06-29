@@ -3316,3 +3316,200 @@ input:focus-visible,
   .sleep-timeline-label,
   .sleep-timeline-time { font-size: 11px; }
 }
+
+/* Shared analysis window controls and full-width statistical stacks. */
+.analysis-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px 12px;
+}
+
+.analysis-range-popover {
+  position: relative;
+}
+
+.analysis-range-popover[open] {
+  z-index: 5;
+}
+
+.analysis-range-summary {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--foreground);
+  background: color-mix(in srgb, var(--card) 92%, transparent);
+  list-style: none;
+}
+
+.analysis-range-summary::-webkit-details-marker {
+  display: none;
+}
+
+.analysis-range-summary span {
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+
+.analysis-range-summary strong {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 450;
+}
+
+.analysis-range-summary svg {
+  width: 14px;
+  height: 14px;
+  color: var(--muted-foreground);
+}
+
+.analysis-range-controls {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  display: grid;
+  min-width: 278px;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--card);
+  box-shadow: var(--shadow-overlay);
+}
+
+.analysis-range-field {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.analysis-range-field span {
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.analysis-range-field input {
+  min-height: 36px;
+  min-width: 146px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--foreground);
+  background: var(--card);
+  font-size: 13px;
+}
+
+.analysis-range-reset {
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--foreground);
+  background: color-mix(in srgb, var(--accent) 72%, transparent);
+  font-size: 13px;
+}
+
+.physiology-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.physiology-grid > .panel {
+  min-height: 252px;
+}
+
+.activity-page .metric-trend-grid {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  gap: 16px;
+  align-items: stretch;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.activity-page .metric-trend-grid > .panel {
+  flex: 0 0 min(360px, calc(50vw - 64px));
+  min-width: 320px;
+}
+
+.activity-page .metric-trend-grid > .panel:only-child {
+  flex: 1 1 auto;
+  min-width: min(100%, 760px);
+}
+
+.sport-detail-layout-single {
+  grid-template-columns: 1fr;
+}
+
+.sport-picker {
+  min-width: 220px;
+}
+
+.sport-picker select {
+  min-width: 220px;
+}
+
+.age-estimate-caption {
+  margin: 10px 0 0;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+@media (max-width: 980px) {
+  .analysis-controls {
+    align-items: stretch;
+    justify-content: flex-start;
+  }
+
+  .activity-page .metric-trend-grid {
+    gap: 14px;
+  }
+}
+
+@media (max-width: 720px) {
+  .analysis-controls,
+  .analysis-range-popover {
+    width: 100%;
+  }
+
+  .analysis-range-summary,
+  .analysis-range-controls,
+  .sport-picker,
+  .sport-picker select,
+  .physiology-grid {
+    width: 100%;
+  }
+
+  .analysis-range-controls {
+    flex-direction: column;
+    right: auto;
+    left: 0;
+    min-width: 100%;
+  }
+
+  .analysis-range-field input,
+  .analysis-range-reset {
+    width: 100%;
+  }
+
+  .physiology-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .activity-page .metric-trend-grid {
+    gap: 12px;
+  }
+
+  .activity-page .metric-trend-grid > .panel {
+    flex-basis: min(86vw, 320px);
+    min-width: 260px;
+  }
+}

@@ -30,13 +30,25 @@ import {
   useSidebar,
 } from '@/components/ui/sidebar'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import type { AnalysisMode, AnalysisRange, DashboardData, FitbitAuthStatus, FitbitConfigInput, HealthProvider, PageId } from '@/types'
+import type {
+  AnalysisMode,
+  AnalysisRange,
+  CaffeineEntry,
+  DashboardData,
+  FitbitAuthStatus,
+  FitbitConfigInput,
+  HealthProvider,
+  LifestyleData,
+  LifestyleProfile,
+  PageId,
+} from '@/types'
 import { createDemoData, localIso } from '@/data/demo'
 import { normalizeFitbitData } from '@/data/normalize'
 import { clampAnalysisRange, defaultAnalysisRange, filterDashboardDataByRange } from '@/lib/analysis-window'
+import { buildLifestyleAnalytics, defaultLifestyleData } from '@/lib/caffeine-model'
 import { formatDate, relativeTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
-import { ActivityView, BodyView, DevicesView, HealthView, SleepView, TodayView } from '@/components/Views'
+import { ActivityView, BodyView, DevicesView, HealthView, LifestyleView, SleepView, TodayView } from '@/components/Views'
 import { HealthAssistant } from '@/components/HealthAssistant'
 import type { AssistantNavigation } from '@/lib/health-assistant'
 import type { AppIcon } from '@/components/icons'
@@ -55,6 +67,7 @@ import {
   ExternalIcon,
   HeartIcon,
   LoaderIcon,
+  NutritionIcon,
   SettingsIcon,
   ShieldIcon,
   SleepIcon,
@@ -63,7 +76,7 @@ import {
   TodayIcon,
 } from '@/components/icons'
 
-type NavCategory = 'summary' | 'activity' | 'heart' | 'sleep' | 'body' | 'device'
+type NavCategory = 'summary' | 'activity' | 'heart' | 'sleep' | 'body' | 'lifestyle' | 'device'
 
 const navItems: Array<{ id: PageId; label: string; copy: string; icon: AppIcon; category: NavCategory }> = [
   { id: 'today', label: 'Today', copy: 'The day’s essential overview.', icon: TodayIcon, category: 'summary' },
@@ -71,6 +84,7 @@ const navItems: Array<{ id: PageId; label: string; copy: string; icon: AppIcon; 
   { id: 'health', label: 'Health', copy: 'Cardiac and physiological signals over time.', icon: HeartIcon, category: 'heart' },
   { id: 'sleep', label: 'Sleep', copy: 'Duration, quality, and composition of your latest night’s sleep.', icon: SleepIcon, category: 'sleep' },
   { id: 'body', label: 'Body', copy: 'Weight, composition, and daily balance.', icon: BodyIcon, category: 'body' },
+  { id: 'lifestyle', label: 'Lifestyle', copy: 'Caffeine logging, modeled curves, and downstream context.', icon: NutritionIcon, category: 'lifestyle' },
   { id: 'devices', label: 'Data', copy: 'Sources, coverage, and local protection.', icon: DeviceIcon, category: 'device' },
 ]
 
@@ -131,6 +145,7 @@ export default function App() {
   const [assistantOpen, setAssistantOpen] = useState(false)
   const [analysisMode, setAnalysisMode] = useState<AnalysisMode>('daily')
   const [analysisRange, setAnalysisRange] = useState<AnalysisRange | null>(null)
+  const [lifestyleData, setLifestyleData] = useState<LifestyleData>(() => defaultLifestyleData())
   const [syncing, setSyncing] = useState(false)
   const [syncTargetDate, setSyncTargetDate] = useState<string | null>(null)
   const [connecting, setConnecting] = useState(false)
@@ -163,6 +178,13 @@ export default function App() {
     () => filterDashboardDataByRange(data, normalizedAnalysisRange),
     [data, normalizedAnalysisRange],
   )
+  const lifestyleAnalytics = useMemo(
+    () => buildLifestyleAnalytics(lifestyleData, selectedDate, normalizedAnalysisRange, {
+      weightKg: data.body.weightKg,
+      bodyFatPercent: data.body.bodyFat,
+    }),
+    [data.body.bodyFat, data.body.weightKg, lifestyleData, normalizedAnalysisRange, selectedDate],
+  )
 
   useEffect(() => {
     if (!analysisRange || analysisRange.startDate !== normalizedAnalysisRange.startDate || analysisRange.endDate !== normalizedAnalysisRange.endDate) {
@@ -173,8 +195,13 @@ export default function App() {
   const loadNativeState = useCallback(async () => {
     if (!window.fitbit) return
     try {
-      const [nextStatus, cached] = await Promise.all([window.fitbit.getStatus(), window.fitbit.getCachedData()])
+      const [nextStatus, cached, nextLifestyle] = await Promise.all([
+        window.fitbit.getStatus(),
+        window.fitbit.getCachedData(),
+        window.fitbit.getLifestyleData(),
+      ])
       setStatus(nextStatus)
+      setLifestyleData(nextLifestyle)
       if (cached) {
         const normalized = normalizeFitbitData(cached)
         dataDateRef.current = normalized.selectedDate
@@ -185,6 +212,28 @@ export default function App() {
     } catch (error) {
       setToast({ tone: 'error', message: error instanceof Error ? error.message : 'Unable to read the local status.' })
     }
+  }, [])
+
+  const saveLifestyleProfile = useCallback(async (profile: LifestyleProfile) => {
+    if (!window.fitbit) {
+      setLifestyleData((current) => ({ ...current, profile, lastUpdatedAt: new Date().toISOString() }))
+      return
+    }
+    const next = await window.fitbit.saveLifestyleProfile(profile)
+    setLifestyleData(next)
+  }, [])
+
+  const saveCaffeineEntries = useCallback(async (date: string, entries: CaffeineEntry[]) => {
+    if (!window.fitbit) {
+      setLifestyleData((current) => ({
+        ...current,
+        caffeineEntriesByDate: { ...current.caffeineEntriesByDate, [date]: entries },
+        lastUpdatedAt: new Date().toISOString(),
+      }))
+      return
+    }
+    const next = await window.fitbit.saveCaffeineEntries(date, entries)
+    setLifestyleData(next)
   }, [])
 
   const runSync = useCallback(async (requestedDate?: string) => {
@@ -360,6 +409,7 @@ export default function App() {
 
   const currentView = useMemo(() => {
     const props = {
+      selectedDate,
       data,
       analysisData,
       status,
@@ -369,14 +419,31 @@ export default function App() {
       analysisRange: normalizedAnalysisRange,
       defaultAnalysisRange: defaultRange,
       setAnalysisRange,
+      lifestyleData,
+      lifestyleAnalytics,
+      saveLifestyleProfile,
+      saveCaffeineEntries,
     }
     if (page === 'activity') return <ActivityView {...props} />
     if (page === 'health') return <HealthView {...props} />
     if (page === 'sleep') return <SleepView {...props} />
     if (page === 'body') return <BodyView {...props} />
+    if (page === 'lifestyle') return <LifestyleView {...props} />
     if (page === 'devices') return <DevicesView {...props} />
     return <TodayView {...props} />
-  }, [analysisData, analysisMode, data, defaultRange, normalizedAnalysisRange, page, status])
+  }, [
+    analysisData,
+    analysisMode,
+    data,
+    defaultRange,
+    lifestyleAnalytics,
+    lifestyleData,
+    normalizedAnalysisRange,
+    page,
+    saveCaffeineEntries,
+    saveLifestyleProfile,
+    status,
+  ])
 
   const isToday = selectedDate === localIso()
   const sourceLabel = status.connected

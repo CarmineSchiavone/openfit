@@ -1,4 +1,4 @@
-import type { ActivityItem, DashboardData, TrendPoint } from '@/types'
+import type { ActivityItem, CaffeineSummary, DashboardData, TrendPoint } from '@/types'
 
 export interface RelationshipVariable {
   key: string
@@ -58,7 +58,13 @@ type HistoricalContext = {
 }
 
 type DriverDefinition = RelationshipVariable & {
-  accessor: (point: TrendPoint, activity: ActivitySummary, sportKeys: string[], context: HistoricalContext) => number | null
+  accessor: (
+    point: TrendPoint,
+    activity: ActivitySummary,
+    sportKeys: string[],
+    context: HistoricalContext,
+    caffeine: CaffeineSummary | null,
+  ) => number | null
   isBinary?: boolean
 }
 
@@ -144,6 +150,11 @@ const baseDrivers: DriverDefinition[] = [
   { key: 'workoutHeartRate7dAvg', label: '7d workout heart rate', unit: 'bpm', kind: 'metric', accessor: (_point, _activity, _sportKeys, context) => context.workoutHeartRate7dAvg },
   { key: 'workoutCount7dTotal', label: '7d workout count', unit: '', kind: 'metric', accessor: (_point, _activity, _sportKeys, context) => context.workoutCount7dTotal },
   { key: 'workoutMinutes7dSd', label: 'Training variability', unit: 'min', kind: 'metric', accessor: (_point, _activity, _sportKeys, context) => context.workoutMinutes7dSd },
+  { key: 'caffeineTotalIntake', label: 'Daily caffeine', unit: 'mg', kind: 'habit', accessor: (_point, _activity, _sportKeys, _context, caffeine) => caffeine?.totalIntakeMg ?? null },
+  { key: 'caffeineBedtime', label: 'Caffeine at bedtime', unit: 'mg', kind: 'habit', accessor: (_point, _activity, _sportKeys, _context, caffeine) => caffeine?.bedtimeCaffeineMg ?? null },
+  { key: 'caffeinePeakPlasma', label: 'Peak caffeine', unit: 'mg', kind: 'habit', accessor: (_point, _activity, _sportKeys, _context, caffeine) => caffeine?.peakPlasmaMg ?? null },
+  { key: 'caffeineCarryover', label: 'Midnight caffeine carryover', unit: 'mg', kind: 'habit', accessor: (_point, _activity, _sportKeys, _context, caffeine) => caffeine?.midnightCarryoverMg ?? null },
+  { key: 'caffeineExposure', label: 'Daily caffeine exposure', unit: 'mg·h', kind: 'habit', accessor: (_point, _activity, _sportKeys, _context, caffeine) => caffeine?.dailyExposureMgHours ?? null },
 ]
 
 function mean(values: number[]) {
@@ -320,7 +331,11 @@ function buildEmptyContext(): HistoricalContext {
   }
 }
 
-function buildOutcomeModel(data: DashboardData, outcome: OutcomeDefinition): OutcomeModelResult | null {
+function buildOutcomeModel(
+  data: DashboardData,
+  outcome: OutcomeDefinition,
+  caffeineSummaries?: Map<string, CaffeineSummary>,
+): OutcomeModelResult | null {
   const { byDate, topSports, sportDrivers } = summarizeActivities(data.activities)
   const contexts = buildHistoricalContexts(data.trends, byDate)
   const outcomeKeys = new Set(modelOutcomes.map((item) => item.key))
@@ -334,6 +349,7 @@ function buildOutcomeModel(data: DashboardData, outcome: OutcomeDefinition): Out
         byDate.get(point.date) ?? zeroActivitySummary(),
         topSports,
         contexts.get(point.date) ?? emptyContext,
+        caffeineSummaries?.get(point.date) ?? null,
       )
       const result = outcome.accessor(point)
       return driver !== null && Number.isFinite(driver) && result !== null && Number.isFinite(result)
@@ -358,7 +374,7 @@ function buildOutcomeModel(data: DashboardData, outcome: OutcomeDefinition): Out
     const context = contexts.get(point.date) ?? emptyContext
     const result = outcome.accessor(point)
     if (result === null || !Number.isFinite(result)) return []
-    const values = predictors.map((predictor) => predictor.accessor(point, activity, topSports, context))
+    const values = predictors.map((predictor) => predictor.accessor(point, activity, topSports, context, caffeineSummaries?.get(point.date) ?? null))
     return values.every((value) => value !== null && Number.isFinite(value))
       ? [{ date: point.date, outcome: result, predictors: values as number[] }]
       : []
@@ -435,9 +451,9 @@ export function buildRecoveryModel(data: DashboardData) {
   return buildOutcomeModel(data, modelOutcomes[0])
 }
 
-export function buildOutcomeModels(data: DashboardData) {
+export function buildOutcomeModels(data: DashboardData, caffeineSummaries?: Map<string, CaffeineSummary>) {
   return modelOutcomes
-    .map((outcome) => buildOutcomeModel(data, outcome))
+    .map((outcome) => buildOutcomeModel(data, outcome, caffeineSummaries))
     .filter((result): result is OutcomeModelResult => result !== null)
     .sort((left, right) => right.explainedVariance - left.explainedVariance)
 }

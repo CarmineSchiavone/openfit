@@ -2180,6 +2180,16 @@ input:focus-visible,
   font-size: 13px;
 }
 
+.metric-select input {
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--foreground);
+  background: var(--card);
+  font-size: 13px;
+}
+
 .relationship-controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
 .correlation-matrix { display: grid; gap: 8px; overflow-x: auto; }
 .correlation-header-row,
@@ -3463,6 +3473,93 @@ input:focus-visible,
   line-height: 1.45;
 }
 
+.lifestyle-grid {
+  display: grid;
+  grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
+  gap: 16px;
+}
+
+.lifestyle-profile-panel,
+.lifestyle-log-panel,
+.lifestyle-curve-panel {
+  padding: 18px;
+}
+
+.lifestyle-profile-fields {
+  display: grid;
+  gap: 12px;
+}
+
+.caffeine-entry-list {
+  display: grid;
+  gap: 12px;
+}
+
+.caffeine-entry-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.5fr) minmax(120px, 0.8fr) minmax(110px, 0.7fr) auto;
+  gap: 12px;
+  align-items: end;
+  padding: 12px 0;
+}
+
+.caffeine-entry-row + .caffeine-entry-row {
+  border-top: 1px solid var(--border);
+}
+
+.lifestyle-remove-button {
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--muted-foreground);
+  background: transparent;
+  font-size: 13px;
+}
+
+.lifestyle-remove-button:hover {
+  color: var(--foreground);
+  background: color-mix(in srgb, var(--accent) 52%, transparent);
+}
+
+.lifestyle-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+  margin-top: 14px;
+}
+
+.lifestyle-summary-grid > .panel {
+  min-height: 170px;
+}
+
+.lifestyle-compartment-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.multi-line-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 8px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+
+.multi-line-legend span {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.multi-line-legend i {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+}
+
 @media (max-width: 980px) {
   .analysis-controls {
     align-items: stretch;
@@ -3471,6 +3568,14 @@ input:focus-visible,
 
   .activity-page .metric-trend-grid {
     gap: 14px;
+  }
+
+  .lifestyle-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .lifestyle-compartment-grid {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -3511,5 +3616,13 @@ input:focus-visible,
   .activity-page .metric-trend-grid > .panel {
     flex-basis: min(86vw, 320px);
     min-width: 260px;
+  }
+
+  .caffeine-entry-row {
+    grid-template-columns: 1fr;
+  }
+
+  .lifestyle-actions {
+    flex-direction: column;
   }
 }

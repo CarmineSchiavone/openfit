@@ -37,9 +37,11 @@ let oauthTimeout = null
 let pendingOAuthFlow = null
 let credentialFile = null
 let cacheFile = null
+let lifestyleFile = null
 let syncInFlight = null
 let codexService = null
 let assistantRequestId = null
+const LIFESTYLE_VERSION = 1
 
 function atomicWrite(file, content) {
   const temporary = `${file}.${process.pid}.tmp`
@@ -81,6 +83,129 @@ function readSecure(file, fallback = null) {
 
 function deleteIfPresent(file) {
   try { fs.rmSync(file, { force: true }) } catch { /* best effort */ }
+}
+
+function clampNumber(value, minimum, maximum) {
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric)) return minimum
+  return Math.min(maximum, Math.max(minimum, numeric))
+}
+
+function validTimeSlot(value) {
+  return typeof value === 'string' && /^([01]\d|2[0-3]):00$/.test(value)
+}
+
+function defaultLifestyleData() {
+  return {
+    version: LIFESTYLE_VERSION,
+    profile: {
+      sex: 'male',
+      smokingStatus: 'non-smoker',
+      bodyComposition: 'average',
+      bodyFatPercentOverride: null,
+    },
+    caffeineEntriesByDate: {},
+    lastUpdatedAt: null,
+  }
+}
+
+function normalizeLifestyleData(value) {
+  const fallback = defaultLifestyleData()
+  if (!value || typeof value !== 'object') return fallback
+  const profile = value.profile && typeof value.profile === 'object'
+    ? {
+      sex: value.profile.sex === 'female' ? 'female' : 'male',
+      smokingStatus: value.profile.smokingStatus === 'smoker' ? 'smoker' : 'non-smoker',
+      bodyComposition: value.profile.bodyComposition === 'lean'
+        ? 'lean'
+        : value.profile.bodyComposition === 'high-body-fat'
+          ? 'high-body-fat'
+          : 'average',
+      bodyFatPercentOverride: Number.isFinite(Number(value.profile.bodyFatPercentOverride))
+        ? clampNumber(value.profile.bodyFatPercentOverride, 3, 60)
+        : null,
+    }
+    : fallback.profile
+  const caffeineEntriesByDate = {}
+  for (const [date, entries] of Object.entries(value.caffeineEntriesByDate || {})) {
+    if (!validSyncDate(date) || !Array.isArray(entries)) continue
+    caffeineEntriesByDate[date] = entries
+      .filter((entry) => entry && typeof entry === 'object')
+      .map((entry, index) => ({
+        id: String(entry.id || `${date}-${index}`),
+        date,
+        timeSlot: validTimeSlot(entry.timeSlot) ? entry.timeSlot : '08:00',
+        presetId: String(entry.presetId || 'custom'),
+        amountMg: clampNumber(entry.amountMg, 0, 1_000),
+      }))
+  }
+  return {
+    version: LIFESTYLE_VERSION,
+    profile,
+    caffeineEntriesByDate,
+    lastUpdatedAt: typeof value.lastUpdatedAt === 'string' ? value.lastUpdatedAt : null,
+  }
+}
+
+function getLifestyleData() {
+  return normalizeLifestyleData(readSecure(lifestyleFile, null))
+}
+
+function saveLifestyleData(value) {
+  writeSecure(lifestyleFile, normalizeLifestyleData(value))
+}
+
+function saveLifestyleProfile(input) {
+  const current = getLifestyleData()
+  const next = normalizeLifestyleData({
+    ...current,
+    profile: {
+      sex: input?.sex === 'female' ? 'female' : 'male',
+      smokingStatus: input?.smokingStatus === 'smoker' ? 'smoker' : 'non-smoker',
+      bodyComposition: input?.bodyComposition === 'lean'
+        ? 'lean'
+        : input?.bodyComposition === 'high-body-fat'
+          ? 'high-body-fat'
+          : 'average',
+      bodyFatPercentOverride: Number.isFinite(Number(input?.bodyFatPercentOverride))
+        ? clampNumber(input.bodyFatPercentOverride, 3, 60)
+        : null,
+    },
+    lastUpdatedAt: new Date().toISOString(),
+  })
+  saveLifestyleData(next)
+  return next
+}
+
+function saveCaffeineEntries(date, entries) {
+  if (!validSyncDate(String(date))) throw new Error('Invalid caffeine entry date.')
+  if (!Array.isArray(entries)) throw new Error('Caffeine entries must be an array.')
+  const current = getLifestyleData()
+  const nextEntries = entries
+    .filter((entry) => entry && typeof entry === 'object')
+    .map((entry, index) => {
+      if (!validTimeSlot(entry.timeSlot)) throw new Error('Caffeine time must use 1-hour windows.')
+      const amountMg = clampNumber(entry.amountMg, 0, 1_000)
+      if (amountMg <= 0) throw new Error('Caffeine amount must be greater than zero.')
+      return {
+        id: String(entry.id || `${date}-${index}`),
+        date: String(date),
+        timeSlot: entry.timeSlot,
+        presetId: String(entry.presetId || 'custom'),
+        amountMg,
+      }
+    })
+    .sort((left, right) => left.timeSlot.localeCompare(right.timeSlot))
+  const next = normalizeLifestyleData({
+    ...current,
+    caffeineEntriesByDate: {
+      ...current.caffeineEntriesByDate,
+      [date]: nextEntries,
+    },
+    lastUpdatedAt: new Date().toISOString(),
+  })
+  saveLifestyleData(next)
+  return next
 }
 
 function getCredentials() {
@@ -399,6 +524,9 @@ function registerIpc() {
   trustedHandle('fitbit:get-status', () => publicStatus())
   trustedHandle('fitbit:get-cached-data', () => healthCache.latestDay(readSecure(cacheFile, null)))
   trustedHandle('fitbit:get-cached-archive', () => healthCache.normalizeArchive(readSecure(cacheFile, null)))
+  trustedHandle('fitbit:get-lifestyle-data', () => getLifestyleData())
+  trustedHandle('fitbit:save-lifestyle-profile', (profile) => saveLifestyleProfile(profile))
+  trustedHandle('fitbit:save-caffeine-entries', (date, entries) => saveCaffeineEntries(String(date), entries))
   trustedHandle('fitbit:save-config', (input) => {
     if (syncInFlight) throw new Error('Wait for the sync to finish before changing the configuration.')
     const credentials = getCredentials()
@@ -443,13 +571,18 @@ function registerIpc() {
   trustedHandle('fitbit:export-data', async () => {
     const cached = healthCache.normalizeArchive(readSecure(cacheFile, null))
     if (!Object.keys(cached.days).length) throw new Error('There is no real data to export yet.')
+    const lifestyle = getLifestyleData()
     const result = await dialog.showSaveDialog(mainWindow, {
       title: 'Export OpenFit archive',
       defaultPath: `openfit-archive-${cached.lastDate || 'health'}.json`,
       filters: [{ name: 'JSON', extensions: ['json'] }],
     })
     if (result.canceled || !result.filePath) return { canceled: true }
-    fs.writeFileSync(result.filePath, JSON.stringify(cached, null, 2), { mode: 0o600 })
+    fs.writeFileSync(result.filePath, JSON.stringify({
+      version: LIFESTYLE_VERSION,
+      healthArchive: cached,
+      lifestyle,
+    }, null, 2), { mode: 0o600 })
     return { canceled: false, path: result.filePath }
   })
   trustedHandle('fitbit:open-external', (value) => {
@@ -557,6 +690,7 @@ app.whenReady().then(() => {
   app.setPath('userData', userData)
   credentialFile = path.join(userData, 'credentials.secure.json')
   cacheFile = path.join(userData, 'health-cache.secure.json')
+  lifestyleFile = path.join(userData, 'lifestyle.secure.json')
   codexService = createCodexService({ cwd: userData, clientVersion: app.getVersion() })
   session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false))
   if (!developmentUrl()) {

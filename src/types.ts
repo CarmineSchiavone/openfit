@@ -1,6 +1,9 @@
-export type PageId = 'today' | 'activity' | 'health' | 'sleep' | 'body' | 'devices'
+export type PageId = 'today' | 'activity' | 'health' | 'sleep' | 'body' | 'lifestyle' | 'devices'
 export type AnalysisMode = 'daily' | 'weekly' | 'monthly'
 export type AgeEstimateReadiness = 'insufficient' | 'stabilizing' | 'ready'
+export type LifestyleSex = 'female' | 'male'
+export type SmokingStatus = 'non-smoker' | 'smoker'
+export type BodyComposition = 'lean' | 'average' | 'high-body-fat'
 
 export type DataSource = 'demo' | 'fitbit' | 'google-health' | 'whoop' | 'cache'
 
@@ -14,6 +17,60 @@ export interface TimePoint {
 export interface AnalysisRange {
   startDate: string
   endDate: string
+}
+
+export interface LifestyleProfile {
+  sex: LifestyleSex
+  smokingStatus: SmokingStatus
+  bodyComposition: BodyComposition
+  bodyFatPercentOverride: number | null
+}
+
+export interface CaffeinePreset {
+  id: string
+  label: string
+  serving: string
+  caffeineMg: number
+}
+
+export interface CaffeineEntry {
+  id: string
+  date: string
+  timeSlot: string
+  presetId: string
+  amountMg: number
+}
+
+export interface CaffeineCurvePoint {
+  time: string
+  minuteOfDay: number
+  plasma: number
+  brain: number
+  heart: number
+  remainingTissue: number
+  total: number
+}
+
+export interface CaffeineSummary {
+  date: string
+  totalIntakeMg: number
+  bedtimeCaffeineMg: number
+  peakPlasmaMg: number
+  midnightCarryoverMg: number
+  dailyExposureMgHours: number
+}
+
+export interface CaffeineDayModel {
+  date: string
+  entries: CaffeineEntry[]
+  curve: CaffeineCurvePoint[]
+  summary: CaffeineSummary
+}
+
+export interface LifestyleData {
+  profile: LifestyleProfile
+  caffeineEntriesByDate: Record<string, CaffeineEntry[]>
+  lastUpdatedAt: string | null
 }
 
 export interface TrendPoint {
@@ -323,6 +380,9 @@ export interface FitbitBridge {
   sync: (date: string) => Promise<RawFitbitPayload>
   getCachedData: () => Promise<RawFitbitPayload | null>
   getCachedArchive: () => Promise<RawHealthArchive>
+  getLifestyleData: () => Promise<LifestyleData>
+  saveLifestyleProfile: (profile: LifestyleProfile) => Promise<LifestyleData>
+  saveCaffeineEntries: (date: string, entries: CaffeineEntry[]) => Promise<LifestyleData>
   exportData: () => Promise<{ canceled: boolean; path?: string }>
   openExternal: (url: string) => Promise<void>
   onAuthComplete: (callback: (result: { ok: boolean; error?: string }) => void) => () => void
@@ -353,4 +413,10 @@ export interface HealthAssistantBridge {
   cancel: (requestId: string) => Promise<void>
   reset: () => Promise<void>
   onEvent: (callback: (event: HealthAssistantEvent) => void) => () => void
+}
+
+export interface LifestyleExportArchive {
+  version: number
+  healthArchive: RawHealthArchive
+  lifestyle: LifestyleData
 }

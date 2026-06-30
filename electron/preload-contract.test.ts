@@ -50,6 +50,9 @@ describe('preload bridge contract', () => {
       'sync',
       'getCachedData',
       'getCachedArchive',
+      'getLifestyleData',
+      'saveLifestyleProfile',
+      'saveCaffeineEntries',
       'exportData',
       'openExternal',
       'onAuthComplete',
@@ -63,6 +66,9 @@ describe('preload bridge contract', () => {
     expect(fitbit?.sync('2026-06-22')).toMatchObject({ channel: 'fitbit:sync', args: ['2026-06-22'] })
     expect(fitbit?.getCachedData()).toMatchObject({ channel: 'fitbit:get-cached-data' })
     expect(fitbit?.getCachedArchive()).toMatchObject({ channel: 'fitbit:get-cached-archive' })
+    expect(fitbit?.getLifestyleData()).toMatchObject({ channel: 'fitbit:get-lifestyle-data' })
+    expect(fitbit?.saveLifestyleProfile({ sex: 'male' })).toMatchObject({ channel: 'fitbit:save-lifestyle-profile', args: [{ sex: 'male' }] })
+    expect(fitbit?.saveCaffeineEntries('2026-06-22', [{ id: '1' }])).toMatchObject({ channel: 'fitbit:save-caffeine-entries', args: ['2026-06-22', [{ id: '1' }]] })
     expect(fitbit?.exportData()).toMatchObject({ channel: 'fitbit:export-data' })
     expect(fitbit?.openExternal('https://example.test')).toMatchObject({ channel: 'fitbit:open-external', args: ['https://example.test'] })
 
@@ -83,7 +89,7 @@ describe('preload bridge contract', () => {
     expect(handleSyncProgress).toHaveBeenCalledWith({ completed: 1, total: 2, key: 'steps' })
     unsubscribeSync()
     expect(removeListener).toHaveBeenCalledWith('fitbit:sync-progress', syncListener)
-    expect(invoke).toHaveBeenCalledTimes(9)
+    expect(invoke).toHaveBeenCalledTimes(12)
   })
 
   it('exposes the expected health assistant bridge methods and IPC channels', () => {

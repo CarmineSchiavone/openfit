@@ -604,6 +604,152 @@ export function ScatterRegressionChart({
   )
 }
 
+export function MultiLineChart({
+  series,
+  labels = [],
+  xValues,
+  height = 280,
+  ariaLabel = 'Multiple trend lines',
+}: {
+  series: Array<{
+    key: string
+    label: string
+    color: string
+    values: NumericValue[]
+    formatter?: (value: number) => string
+  }>
+  labels?: string[]
+  xValues?: number[]
+  height?: number
+  ariaLabel?: string
+}) {
+  const flattened = series.flatMap((entry) => finiteValues(entry.values))
+  const { containerRef, width } = useResponsiveChartWidth(flattened.length > 0)
+  const [activeIndex, setActiveIndex] = useState<number | null>(null)
+
+  if (!flattened.length) return <div className="chart-empty" style={{ height }}>No data for this range</div>
+
+  const margin = { top: 18, right: 18, bottom: 34, left: 62 }
+  const plotWidth = width - margin.left - margin.right
+  const plotHeight = height - margin.top - margin.bottom
+  const domain = lineDomain(flattened, null)
+  const validX = xValues?.length === labels.length && xValues.every(Number.isFinite)
+    ? xValues
+    : labels.map((_, index) => index)
+  const xMin = Math.min(...validX)
+  const xMax = Math.max(...validX)
+  const xFor = (index: number) => margin.left + (xMax === xMin ? plotWidth / 2 : ((validX[index] - xMin) / (xMax - xMin)) * plotWidth)
+  const yFor = (value: number) => margin.top + ((domain.max - value) / (domain.max - domain.min)) * plotHeight
+  const ticks = [domain.min, Math.min(domain.max, domain.min + Math.ceil((domain.max - domain.min) / (domain.step * 2)) * domain.step), domain.max]
+  const labelEvery = Math.max(1, Math.ceil(labels.length / 6))
+
+  const buildSegments = (values: NumericValue[]) => {
+    const segmentIndexes: number[][] = []
+    let currentIndexes: number[] = []
+    values.forEach((value, index) => {
+      if (value === null || !Number.isFinite(value)) {
+        if (currentIndexes.length) segmentIndexes.push(currentIndexes)
+        currentIndexes = []
+        return
+      }
+      currentIndexes.push(index)
+    })
+    if (currentIndexes.length) segmentIndexes.push(currentIndexes)
+    return segmentIndexes.map((indexes) => indexes.map((index, position) => {
+      const value = values[index] as number
+      return `${position ? 'L' : 'M'} ${xFor(index).toFixed(2)} ${yFor(value).toFixed(2)}`
+    }).join(' '))
+  }
+
+  const activeLabel = activeIndex === null ? null : labels[activeIndex] ?? `Point ${activeIndex + 1}`
+
+  return (
+    <div ref={containerRef} className="line-chart multi-line-chart" style={{ height }}>
+      <svg
+        viewBox={`0 0 ${width} ${height}`}
+        role="img"
+        aria-label={ariaLabel}
+        onPointerLeave={() => setActiveIndex(null)}
+      >
+        <title>{ariaLabel}</title>
+        {ticks.map((tick, index) => {
+          const y = yFor(tick)
+          return (
+            <g key={`${tick}-${index}`}>
+              <line x1={margin.left} y1={y} x2={width - margin.right} y2={y} className="chart-gridline" />
+              <text x={margin.left - 9} y={y + 3} textAnchor="end" className="chart-tick">{formatNumber(tick)}</text>
+            </g>
+          )
+        })}
+        {series.map((entry) => (
+          <g key={entry.key}>
+            {buildSegments(entry.values).map((path, index) => (
+              <path
+                key={`${entry.key}-${index}`}
+                d={path}
+                fill="none"
+                stroke={entry.color}
+                strokeWidth="2.3"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            ))}
+            {entry.values.map((value, index) => value !== null && Number.isFinite(value) ? (
+              <circle
+                key={`${entry.key}-${index}`}
+                cx={xFor(index)}
+                cy={yFor(value)}
+                r={activeIndex === index ? 4.7 : 3.4}
+                fill="var(--card)"
+                stroke={entry.color}
+                strokeWidth="2"
+                opacity={activeIndex === null || activeIndex === index ? 0.95 : 0.72}
+                onPointerEnter={() => setActiveIndex(index)}
+              >
+                <title>{`${entry.label} · ${labels[index] ?? `Point ${index + 1}`}: ${(entry.formatter ?? formatNumber)(value)}`}</title>
+              </circle>
+            ) : null)}
+          </g>
+        ))}
+        {activeIndex !== null && (
+          <line x1={xFor(activeIndex)} y1={margin.top} x2={xFor(activeIndex)} y2={height - margin.bottom} className="chart-hover-guide" />
+        )}
+        {labels.map((label, index) => {
+          const lastIndex = labels.length - 1
+          if (index !== lastIndex && (index % labelEvery !== 0 || lastIndex - index < labelEvery)) return null
+          return <text key={`${label}-${index}`} x={xFor(index)} y={height - 8} textAnchor="middle" className="chart-label">{label}</text>
+        })}
+      </svg>
+      <div className="multi-line-legend" aria-hidden="true">
+        {series.map((entry) => (
+          <span key={entry.key}>
+            <i style={{ background: entry.color }} />
+            {entry.label}
+          </span>
+        ))}
+      </div>
+      {activeIndex !== null && activeLabel && (
+        <div
+          className="chart-tooltip multi-line-tooltip"
+          style={{ left: `clamp(88px, ${xFor(activeIndex) / width * 100}%, calc(100% - 88px))`, top: `${(margin.top + 16) / height * 100}%` }}
+          role="status"
+        >
+          <span>{activeLabel}</span>
+          {series.map((entry) => {
+            const value = entry.values[activeIndex]
+            if (value === null || !Number.isFinite(value)) return null
+            return (
+              <small key={entry.key}>
+                {entry.label}: {(entry.formatter ?? formatNumber)(value)}
+              </small>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function RadialProgress({
   value,
   max = 100,

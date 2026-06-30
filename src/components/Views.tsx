@@ -1,7 +1,19 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
-import type { ActivityItem, AnalysisMode, AnalysisRange, DashboardData, FitbitAuthStatus, PageId, TimePoint } from '@/types'
+import type {
+  ActivityItem,
+  AnalysisMode,
+  AnalysisRange,
+  CaffeineEntry,
+  DashboardData,
+  FitbitAuthStatus,
+  LifestyleData,
+  LifestyleProfile,
+  PageId,
+  TimePoint,
+} from '@/types'
 import { BulletChart, ColumnChart, LineChart, RadialProgress, ScatterRegressionChart, SleepStageBar, SleepStageTimeline, WeeklyStatChart } from './Charts'
 import { AnalysisModeToggle, AnalysisWindowControls, DuoIcon, EmptyValue, MetricTile, Panel, PanelHeader } from './Shared'
 import type { AppIcon } from './icons'
@@ -43,12 +55,14 @@ import {
 } from '@/lib/format'
 import { availableMetricCount, hasActivityData, hasBodyData, hasHealthData, hasSleepData } from '@/lib/data-availability'
 import { buildPhysiologicalAgeEstimate } from '@/lib/analysis-window'
+import { CAFFEINE_SLEEP_PLASMA_TARGET_UG_ML, caffeinePresets, caffeineTimeSlots, type LifestyleAnalytics } from '@/lib/caffeine-model'
 import { analyzeHome } from '@/lib/home-analysis'
 import type { BaselineComparison } from '@/lib/home-analysis'
 import { buildOutcomeModels } from '@/lib/relationship-analysis'
 import { monthlyAggregates, seriesAggregates, sportDetails, weeklyAggregates, type AggregatePeriod, type TrendMetricKey } from '@/lib/weekly-analysis'
 
 interface ViewProps {
+  selectedDate: string
   data: DashboardData
   analysisData: DashboardData
   status: FitbitAuthStatus
@@ -58,6 +72,10 @@ interface ViewProps {
   analysisRange: AnalysisRange
   defaultAnalysisRange: AnalysisRange
   setAnalysisRange: (range: AnalysisRange) => void
+  lifestyleData: LifestyleData
+  lifestyleAnalytics: LifestyleAnalytics
+  saveLifestyleProfile: (profile: LifestyleProfile) => Promise<void>
+  saveCaffeineEntries: (date: string, entries: CaffeineEntry[]) => Promise<void>
 }
 
 interface Signal {
@@ -862,6 +880,7 @@ export function HealthView({
   analysisRange,
   defaultAnalysisRange,
   setAnalysisRange,
+  lifestyleAnalytics,
 }: ViewProps) {
   const heartValues = data.health.heartRateIntraday.map((point) => point.value)
   const heartLabels = data.health.heartRateIntraday.map((point) => point.time)
@@ -897,7 +916,10 @@ export function HealthView({
   ]
   const hasPhysiologyTrends = physiologyTrendValues.some((values) => values.filter(hasValue).length > 1)
   const hasAgeTrend = ageSeries.length > 1
-  const allModels = useMemo(() => isStatMode(analysisMode) ? buildOutcomeModels(analysisData) : [], [analysisData, analysisMode])
+  const allModels = useMemo(
+    () => isStatMode(analysisMode) ? buildOutcomeModels(analysisData, lifestyleAnalytics.summariesByDate) : [],
+    [analysisData, analysisMode, lifestyleAnalytics.summariesByDate],
+  )
   const [selectedModelKey, setSelectedModelKey] = useState<string>('')
 
   useEffect(() => {
@@ -1215,6 +1237,334 @@ function seriesXValues(points: Array<{ date: string }>) {
     const value = new Date(`${point.date}T12:00:00`).getTime()
     return Number.isFinite(value) ? value : index
   })
+}
+
+function createCaffeineEntry(date: string, index: number): CaffeineEntry {
+  const preset = caffeinePresets[0]
+  return {
+    id: `${date}-${index}-${Math.random().toString(36).slice(2, 8)}`,
+    date,
+    timeSlot: '08:00',
+    presetId: preset.id,
+    amountMg: preset.caffeineMg,
+  }
+}
+
+function caffeinePresetLabel(id: string) {
+  const preset = caffeinePresets.find((item) => item.id === id)
+  return preset ? `${preset.label} · ${preset.serving}` : 'Custom dose'
+}
+
+function lifestyleSeriesValues(points: Array<{ date: string; value: number }>) {
+  return points.map((point) => point.value)
+}
+
+function lifestyleSeriesLabels(points: Array<{ date: string; value: number }>) {
+  return points.map((point) => formatDate(point.date, { day: 'numeric', month: 'short' }))
+}
+
+function lifestyleWeeklySeries(points: Array<{ date: string; value: number }>, key: string, mode: AggregatePeriod) {
+  return seriesAggregates(points, key, mode)
+}
+
+export function LifestyleView({
+  selectedDate,
+  data,
+  analysisMode,
+  setAnalysisMode,
+  analysisRange,
+  defaultAnalysisRange,
+  setAnalysisRange,
+  lifestyleData,
+  lifestyleAnalytics,
+  saveLifestyleProfile,
+  saveCaffeineEntries,
+}: ViewProps) {
+  const existingEntries = lifestyleData.caffeineEntriesByDate[data.selectedDate] ?? []
+  const [draftEntries, setDraftEntries] = useState<CaffeineEntry[]>(existingEntries.length ? existingEntries : [createCaffeineEntry(data.selectedDate, 0)])
+  const [saving, setSaving] = useState(false)
+  const selectedDay = lifestyleAnalytics.selectedDay
+  const syncedWeightKg = hasValue(data.body.weightKg) ? data.body.weightKg : null
+  const syncedBodyFat = hasValue(data.body.bodyFat) ? data.body.bodyFat : null
+
+  useEffect(() => {
+    setDraftEntries(existingEntries.length ? existingEntries : [createCaffeineEntry(data.selectedDate, 0)])
+  }, [data.selectedDate, existingEntries])
+
+  const totalSeries = lifestyleAnalytics.totalIntakeSeries
+  const bedtimeSeries = lifestyleAnalytics.bedtimeSeries
+  const peakSeries = lifestyleAnalytics.peakPlasmaSeries
+  const carryoverSeries = lifestyleAnalytics.carryoverSeries
+  const statMode = isStatMode(analysisMode)
+  const period = statPeriod(analysisMode)
+
+  const saveDay = async () => {
+    setSaving(true)
+    try {
+      await saveCaffeineEntries(data.selectedDate, draftEntries.filter((entry) => entry.amountMg > 0))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const profileField = async <K extends keyof LifestyleProfile>(key: K, value: LifestyleProfile[K]) => {
+    await saveLifestyleProfile({ ...lifestyleData.profile, [key]: value })
+  }
+
+  const updateEntry = (entryId: string, patch: Partial<CaffeineEntry>) => {
+    setDraftEntries((current) => current.map((entry) => {
+      if (entry.id !== entryId) return entry
+      const next = { ...entry, ...patch }
+      if (patch.presetId) {
+        const preset = caffeinePresets.find((item) => item.id === patch.presetId)
+        if (preset && patch.amountMg === undefined) next.amountMg = preset.caffeineMg
+      }
+      return next
+    }))
+  }
+
+  const addEntry = () => {
+    setDraftEntries((current) => [...current, createCaffeineEntry(data.selectedDate, current.length)])
+  }
+
+  const removeEntry = (entryId: string) => {
+    setDraftEntries((current) => {
+      const next = current.filter((entry) => entry.id !== entryId)
+      return next.length ? next : [createCaffeineEntry(data.selectedDate, 0)]
+    })
+  }
+
+  const concentrationFormatter = (value: number) => `${formatNumber(value, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} µg/mL`
+
+  const trendCards = [
+    {
+      key: 'caffeine-total',
+      title: 'Daily caffeine',
+      icon: CaloriesIcon,
+      category: 'activity' as const,
+      badge: lifestyleAnalytics.averageTotalIntakeMg === null ? null : `${formatNumber(lifestyleAnalytics.averageTotalIntakeMg)} mg`,
+      points: totalSeries,
+      formatter: (value: number) => `${formatNumber(value)} mg`,
+    },
+    {
+      key: 'caffeine-bedtime',
+      title: 'Bedtime caffeine',
+      icon: SleepIcon,
+      category: 'sleep' as const,
+      badge: lifestyleAnalytics.averageBedtimeCaffeineMg === null ? null : concentrationFormatter(lifestyleAnalytics.averageBedtimeCaffeineMg),
+      points: bedtimeSeries,
+      formatter: concentrationFormatter,
+    },
+    {
+      key: 'caffeine-peak',
+      title: 'Peak plasma estimate',
+      icon: GaugeIcon,
+      category: 'heart' as const,
+      badge: peakSeries.length ? concentrationFormatter(peakSeries.at(-1)?.value ?? 0) : null,
+      points: peakSeries,
+      formatter: concentrationFormatter,
+    },
+    {
+      key: 'caffeine-carryover',
+      title: 'Midnight carryover',
+      icon: TrendIcon,
+      category: 'recovery' as const,
+      badge: carryoverSeries.length ? `${formatNumber(carryoverSeries.at(-1)?.value ?? 0)} mg` : null,
+      points: carryoverSeries,
+      formatter: (value: number) => `${formatNumber(value)} mg`,
+    },
+  ]
+
+  return (
+    <div className="page-stack lifestyle-page">
+      <div className="lifestyle-grid">
+        <Panel className="lifestyle-profile-panel" category="body">
+          <PanelHeader eyebrow="Stored locally" title="Caffeine profile" icon={NutritionIcon} />
+          <div className="lifestyle-profile-fields">
+            <label className="metric-select">
+              <span>Sex</span>
+              <select value={lifestyleData.profile.sex} onChange={(event) => void profileField('sex', event.target.value as LifestyleProfile['sex'])}>
+                <option value="male">Male</option>
+                <option value="female">Female</option>
+              </select>
+            </label>
+            <label className="metric-select">
+              <span>Smoking status</span>
+              <select value={lifestyleData.profile.smokingStatus} onChange={(event) => void profileField('smokingStatus', event.target.value as LifestyleProfile['smokingStatus'])}>
+                <option value="non-smoker">Non-smoker</option>
+                <option value="smoker">Smoker</option>
+              </select>
+            </label>
+            <div className="body-metrics-list">
+              <BodyMetric
+                label="Weight"
+                value={syncedWeightKg === null ? 'Unavailable' : formatDecimal(syncedWeightKg)}
+                unit={syncedWeightKg === null ? '' : 'kg'}
+                icon={BodyIcon}
+                note={syncedWeightKg === null ? 'Caffeine concentration falls back to a default 75 kg assumption when no synced weight is present.' : 'Using the latest synced body weight.'}
+              />
+            </div>
+            {syncedBodyFat === null ? (
+              <label className="metric-select">
+                <span>Body fat estimate (%)</span>
+                <input
+                  type="number"
+                  min={3}
+                  max={60}
+                  step={1}
+                  value={lifestyleData.profile.bodyFatPercentOverride ?? ''}
+                  placeholder="22"
+                  onChange={(event) => void profileField('bodyFatPercentOverride', event.target.value === '' ? null : Number(event.target.value))}
+                />
+              </label>
+            ) : (
+              <div className="body-metrics-list">
+                <BodyMetric
+                  label="Body fat"
+                  value={formatDecimal(syncedBodyFat)}
+                  unit="%"
+                  icon={SignalIcon}
+                  note="Using the latest synced body-fat estimate."
+                />
+              </div>
+            )}
+          </div>
+          <p className="age-estimate-caption">Smoking still drives most of the clearance shift in v1. Weight sets compartment size, and body fat adjusts how much caffeine is retained outside blood, brain, and heart.</p>
+        </Panel>
+
+        <Panel className="lifestyle-log-panel" category="activity">
+          <PanelHeader eyebrow={formatDate(data.selectedDate, { weekday: 'long', day: 'numeric', month: 'short' })} title="Caffeine log" icon={CalendarIcon} />
+          <div className="caffeine-entry-list">
+            {draftEntries.map((entry) => (
+              <div key={entry.id} className="caffeine-entry-row">
+                <label className="metric-select">
+                  <span>Source</span>
+                  <select value={entry.presetId} onChange={(event) => updateEntry(entry.id, { presetId: event.target.value })}>
+                    {caffeinePresets.map((preset) => <option key={preset.id} value={preset.id}>{caffeinePresetLabel(preset.id)}</option>)}
+                  </select>
+                </label>
+                <label className="metric-select">
+                  <span>Time</span>
+                  <select value={entry.timeSlot} onChange={(event) => updateEntry(entry.id, { timeSlot: event.target.value })}>
+                    {caffeineTimeSlots.map((slot) => <option key={slot} value={slot}>{slot}</option>)}
+                  </select>
+                </label>
+                <label className="metric-select">
+                  <span>Amount</span>
+                  <input type="number" min={0} max={1000} step={5} value={entry.amountMg} onChange={(event) => updateEntry(entry.id, { amountMg: Number(event.target.value) || 0 })} />
+                </label>
+                <button type="button" className="lifestyle-remove-button" onClick={() => removeEntry(entry.id)}>Remove</button>
+              </div>
+            ))}
+          </div>
+          <div className="lifestyle-actions">
+            <Button type="button" variant="outline" onClick={addEntry}>Add another</Button>
+            <Button type="button" onClick={() => void saveDay()} disabled={saving}>{saving ? 'Saving…' : 'Save day'}</Button>
+          </div>
+        </Panel>
+      </div>
+
+      <div className="lifestyle-compartment-grid">
+        <Panel className="lifestyle-curve-panel" category="heart">
+          <PanelHeader eyebrow="Estimated blood concentration" title="Plasma" icon={HeartIcon} action={<Badge variant="secondary">{concentrationFormatter(selectedDay.summary.peakPlasmaMg)}</Badge>} />
+          <LineChart
+            values={selectedDay.curve.map((point) => point.plasma)}
+            labels={selectedDay.curve.map((point) => point.time)}
+            xValues={selectedDay.curve.map((point) => point.minuteOfDay)}
+            color="var(--category-heart)"
+            target={CAFFEINE_SLEEP_PLASMA_TARGET_UG_ML}
+            targetLabel="Sleep threshold"
+            height={240}
+            formatter={concentrationFormatter}
+            ariaLabel="Estimated plasma caffeine concentration"
+          />
+        </Panel>
+        <Panel className="lifestyle-curve-panel" category="sleep">
+          <PanelHeader eyebrow="Estimated brain concentration" title="Brain" icon={SleepIcon} />
+          <LineChart
+            values={selectedDay.curve.map((point) => point.brain)}
+            labels={selectedDay.curve.map((point) => point.time)}
+            xValues={selectedDay.curve.map((point) => point.minuteOfDay)}
+            color="var(--color-cyan)"
+            height={240}
+            formatter={concentrationFormatter}
+            ariaLabel="Estimated brain caffeine concentration"
+          />
+        </Panel>
+        <Panel className="lifestyle-curve-panel" category="activity">
+          <PanelHeader eyebrow="Estimated cardiac concentration" title="Heart" icon={ActivityIcon} />
+          <LineChart
+            values={selectedDay.curve.map((point) => point.heart)}
+            labels={selectedDay.curve.map((point) => point.time)}
+            xValues={selectedDay.curve.map((point) => point.minuteOfDay)}
+            color="var(--color-amber)"
+            height={240}
+            formatter={concentrationFormatter}
+            ariaLabel="Estimated heart caffeine concentration"
+          />
+        </Panel>
+      </div>
+
+      <div className="metric-trend-grid lifestyle-summary-grid">
+        <Panel className="metric-trend-card" category="activity">
+          <PanelHeader eyebrow="Selected day" title="Total caffeine" icon={CaloriesIcon} />
+          <div className="body-weight-value"><strong>{formatNumber(selectedDay.summary.totalIntakeMg)}</strong><span>mg</span></div>
+        </Panel>
+        <Panel className="metric-trend-card" category="sleep">
+          <PanelHeader eyebrow="Estimated at 22:00" title="Plasma at bedtime" icon={SleepIcon} />
+          <div className="body-weight-value"><strong>{formatNumber(selectedDay.summary.bedtimeCaffeineMg, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong><span>µg/mL</span></div>
+        </Panel>
+        <Panel className="metric-trend-card" category="heart">
+          <PanelHeader eyebrow="Selected day" title="Peak plasma" icon={GaugeIcon} />
+          <div className="body-weight-value"><strong>{formatNumber(selectedDay.summary.peakPlasmaMg, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong><span>µg/mL</span></div>
+        </Panel>
+        <Panel className="metric-trend-card" category="recovery">
+          <PanelHeader eyebrow="Into next day" title="Midnight carryover" icon={TrendIcon} />
+          <div className="body-weight-value"><strong>{formatNumber(selectedDay.summary.midnightCarryoverMg)}</strong><span>mg</span></div>
+        </Panel>
+      </div>
+
+      <section>
+        <SectionTitle
+          title={statMode ? `${periodAdjective(analysisMode)} caffeine statistics` : 'Caffeine trends'}
+          copy={statMode ? periodDescription(analysisMode) : 'Daily caffeine exposure summaries across the selected window.'}
+          action={<AnalysisWindowControls mode={analysisMode} onModeChange={setAnalysisMode} range={analysisRange} defaultRange={defaultAnalysisRange} onRangeChange={setAnalysisRange} maxDate={selectedDate} />}
+        />
+        <div className="metric-trend-grid">
+          {trendCards.map((card) => {
+            if (statMode) {
+              const aggregates = lifestyleWeeklySeries(card.points, card.key, period)
+              if (!aggregates.length) return null
+              return (
+                <Panel key={card.key} className="metric-trend-card weekly-metric-card" category={card.category}>
+                  <PanelHeader eyebrow={`${aggregates.length} ${periodNoun(analysisMode)} with data`} title={card.title} icon={card.icon} action={card.badge ? <Badge variant="secondary">{card.badge}</Badge> : null} />
+                  <WeeklyStatChart weeks={aggregates} color="var(--category-heart)" height={176} formatter={card.formatter} ariaLabel={card.title} />
+                </Panel>
+              )
+            }
+            if (card.points.length < 2) return null
+            return (
+              <Panel key={card.key} className="metric-trend-card" category={card.category}>
+                <PanelHeader eyebrow={`${card.points.length} days with data`} title={card.title} icon={card.icon} action={card.badge ? <Badge variant="secondary">{card.badge}</Badge> : null} />
+                <LineChart
+                  values={lifestyleSeriesValues(card.points)}
+                  labels={lifestyleSeriesLabels(card.points)}
+                  xValues={seriesXValues(card.points)}
+                  color="var(--category-heart)"
+                  height={156}
+                  compact
+                  showRangeLabels
+                  variant="area"
+                  formatter={card.formatter}
+                  ariaLabel={card.title}
+                />
+              </Panel>
+            )
+          })}
+        </div>
+      </section>
+    </div>
+  )
 }
 
 function BodyMetric({ label, value, unit, icon: Icon, note }: { label: string; value: string; unit?: string; icon: AppIcon; note: string }) {

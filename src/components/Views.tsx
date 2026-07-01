@@ -1280,15 +1280,15 @@ export function LifestyleView({
   saveLifestyleProfile,
   saveCaffeineEntries,
 }: ViewProps) {
-  const existingEntries = lifestyleData.caffeineEntriesByDate[data.selectedDate] ?? []
-  const [draftEntries, setDraftEntries] = useState<CaffeineEntry[]>(existingEntries.length ? existingEntries : [createCaffeineEntry(data.selectedDate, 0)])
+  const existingEntries = lifestyleData.caffeineEntriesByDate[data.selectedDate]
+  const [draftEntries, setDraftEntries] = useState<CaffeineEntry[]>(existingEntries?.length ? existingEntries : [createCaffeineEntry(data.selectedDate, 0)])
   const [saving, setSaving] = useState(false)
   const selectedDay = lifestyleAnalytics.selectedDay
   const syncedWeightKg = hasValue(data.body.weightKg) ? data.body.weightKg : null
-  const syncedBodyFat = hasValue(data.body.bodyFat) ? data.body.bodyFat : null
+  const syncedBmi = hasValue(data.body.bmi) ? data.body.bmi : null
 
   useEffect(() => {
-    setDraftEntries(existingEntries.length ? existingEntries : [createCaffeineEntry(data.selectedDate, 0)])
+    setDraftEntries(existingEntries?.length ? existingEntries : [createCaffeineEntry(data.selectedDate, 0)])
   }, [data.selectedDate, existingEntries])
 
   const totalSeries = lifestyleAnalytics.totalIntakeSeries
@@ -1404,32 +1404,26 @@ export function LifestyleView({
                 note={syncedWeightKg === null ? 'Caffeine concentration falls back to a default 75 kg assumption when no synced weight is present.' : 'Using the latest synced body weight.'}
               />
             </div>
-            {syncedBodyFat === null ? (
-              <label className="metric-select">
-                <span>Body fat estimate (%)</span>
-                <input
-                  type="number"
-                  min={3}
-                  max={60}
-                  step={1}
-                  value={lifestyleData.profile.bodyFatPercentOverride ?? ''}
-                  placeholder="22"
-                  onChange={(event) => void profileField('bodyFatPercentOverride', event.target.value === '' ? null : Number(event.target.value))}
-                />
-              </label>
-            ) : (
+            {syncedBmi !== null && (
               <div className="body-metrics-list">
                 <BodyMetric
-                  label="Body fat"
-                  value={formatDecimal(syncedBodyFat)}
-                  unit="%"
-                  icon={SignalIcon}
-                  note="Using the latest synced body-fat estimate."
+                  label="BMI"
+                  value={formatDecimal(syncedBmi)}
+                  icon={GaugeIcon}
+                  note="Use this as a guide when picking the body-size category below."
                 />
               </div>
             )}
+            <label className="metric-select">
+              <span>Body-size / BMI category</span>
+              <select value={lifestyleData.profile.bodyComposition} onChange={(event) => void profileField('bodyComposition', event.target.value as LifestyleProfile['bodyComposition'])}>
+                <option value="lean">Lean / low BMI</option>
+                <option value="average">Average</option>
+                <option value="high-body-fat">Higher BMI / adiposity</option>
+              </select>
+            </label>
           </div>
-          <p className="age-estimate-caption">Smoking still drives most of the clearance shift in v1. Weight sets compartment size, and body fat adjusts how much caffeine is retained outside blood, brain, and heart.</p>
+          <p className="age-estimate-caption">Smoking still drives most of the clearance shift in v1. Weight sets compartment size, while the body-size category gives a coarse adjustment for distribution outside blood, brain, and heart.</p>
         </Panel>
 
         <Panel className="lifestyle-log-panel" category="activity">

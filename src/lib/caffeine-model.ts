@@ -155,8 +155,6 @@ function resolvedWeightKg(subject: LifestyleSubjectMetrics) {
 }
 
 function resolvedBodyFatFraction(profile: LifestyleProfile, subject: LifestyleSubjectMetrics) {
-  const explicit = subject.bodyFatPercent ?? profile.bodyFatPercentOverride
-  if (explicit !== null && Number.isFinite(explicit)) return Math.min(0.6, Math.max(0.03, explicit / 100))
   if (profile.bodyComposition === 'lean') return 0.14
   if (profile.bodyComposition === 'high-body-fat') return 0.30
   return 0.22
